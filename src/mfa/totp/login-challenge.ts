@@ -72,17 +72,6 @@ export const openLoginChallenge = Effect.fn("mfa.openLoginChallenge")(function* 
   } satisfies LoginChallengeCookie;
 });
 
-// better-auth の after-hook (src/auth-plugins/mfa-challenge.ts) は Promise / throw 契約 (ADR-0017 の物理境界)
-// なので、ここが Effect と Promise の境界になる。失敗は reject のまま返し、hook 側の
-// fail-closed (catch → チャレンジ画面へ) を保つ。
-// runtime は関数内で動的 import する (auth.ts から静的に辿れる module の規則: src/CLAUDE.md「Effect様式」)。
-export const buildLoginChallengeCookie = async (
-  challenge: LoginChallenge,
-): Promise<LoginChallengeCookie> => {
-  const { getRuntime } = await import("../../runtime");
-  return getRuntime().runPromise(openLoginChallenge(challenge));
-};
-
 // GET /api/mfa/challenge が返すのは boolean 1 つに限る (userId 等を未認証応答へ出さない)。
 export const readLoginChallengeState = Effect.fn("mfa.readLoginChallengeState")(function* (
   headers: Headers,

@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import { auth } from "../../auth";
+import { AuthApi } from "../../auth-service";
+import { DbError } from "../../errors";
 import {
   browserCookieHeaders,
   cleanupIssuedChallenges,
@@ -18,10 +20,13 @@ import {
   peekLoginChallenge,
   readLoginChallengeState,
 } from "../../mfa/totp/login-challenge";
+import { MfaTotpRepo } from "../../mfa/totp/ports";
 import { getRedis, redisStorage } from "../../redis";
-import { runTest } from "../../__tests__/live-runner";
+import { Redis } from "../../redis-service";
+import { SentryService } from "../../sentry";
+import { partial, runTest } from "../../__tests__/live-runner";
 import { TestDb } from "../../__tests__/test-db";
-import { KILL_SWITCH_REPORT_INTERVAL_MS, mfaChallenge } from "../mfa-challenge";
+import { enforceChallenge, KILL_SWITCH_REPORT_INTERVAL_MS, mfaChallenge } from "../mfa-challenge";
 
 // チャレンジ強制プラグイン (src/auth-plugins/mfa-challenge.ts) の統合テスト。
 // magic link は実 HTTP 経路で駆動する。OAuth (/callback/:id) は GitHub の資格情報が無いと
@@ -31,6 +36,22 @@ import { KILL_SWITCH_REPORT_INTERVAL_MS, mfaChallenge } from "../mfa-challenge";
 const P = "mfa-plugin-";
 const run = runTest(P);
 const sentry = installSentryRecorder();
+const killSwitchWarnings = () =>
+  sentry.messages.filter((capture) => capture.context?.tags?.component === "mfa-challenge");
+const withKillSwitchOff = <A, E, R>(body: Effect.Effect<A, E, R>) =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const original = process.env.MFA_CHALLENGE_ENABLED;
+      process.env.MFA_CHALLENGE_ENABLED = "false";
+      return original;
+    }),
+    () => body,
+    (original) =>
+      Effect.sync(() => {
+        if (original === undefined) delete process.env.MFA_CHALLENGE_ENABLED;
+        else process.env.MFA_CHALLENGE_ENABLED = original;
+      }),
+  );
 
 const CHALLENGE_PAGE_PATH = "/auth/mfa";
 const CONSUMER_CALLBACK = "https://app.example.com/dashboard";
@@ -121,9 +142,12 @@ const runOAuthCallbackHook = (
     return outcome;
   });
 
+// recorder の restore は file 全体の最後 (後続 describe も同じ recorder を読む)。
+afterAll(() => sentry.restore());
+
 describe("チャレンジ強制プラグイン", () => {
   beforeEach(() => cleanupAll().then(() => sentry.reset()));
-  afterAll(() => cleanupAll().then(() => sentry.restore()));
+  afterAll(() => cleanupAll());
 
   test("QA-H-03 magic link → 302 /auth/mfa", () =>
     run(
@@ -326,5 +350,181 @@ describe("チャレンジ強制プラグイン", () => {
         expect(signingIn.newSessionUpdates).toEqual([null]);
         expect(yield* countLiveSessions([enabled.session.token])).toBe(0);
       }),
+    ));
+});
+
+// program 単体 (設計 D9 / D12): fake Layer を内側で provide し、判定・介入・kill switch の各分岐を DB 非依存で固定する。
+// kill switch の最終通知時刻は module-level の Ref で QA-D-11 と共有するため、この describe は QA-D-11 の後に置き、
+// 時計は「QA-D-11 が残した値より INTERVAL 以上先」から始める (初回通知を確実に起こす)。
+describe("enforceChallenge (program 単体)", () => {
+  beforeEach(() => sentry.reset());
+
+  const GITHUB = { path: "/callback/:id", params: { id: "github" } };
+  const inputWith = (calls: string[], route = GITHUB) => ({
+    userId: "user-unit",
+    sessionToken: "token-unit",
+    route,
+    location: CONSUMER_CALLBACK,
+    setCookie: () => {
+      calls.push("setCookie");
+    },
+    dropIssuedSession: () => {
+      calls.push("drop");
+    },
+  });
+  const enrollment = (row: { verifiedAt: Date | null } | undefined) =>
+    Layer.succeed(
+      MfaTotpRepo,
+      partial<MfaTotpRepo["Service"]>({ readMfaVerification: () => Effect.succeed(row) }),
+    );
+  const mfaEnabled = enrollment({ verifiedAt: new Date() });
+  // method を渡さない partial は呼ばれた時点で die する = 「0 回」の決定的信号。
+  const untouched = Layer.mergeAll(
+    Layer.succeed(Redis, partial<Redis["Service"]>({})),
+    Layer.succeed(AuthApi, partial<AuthApi["Service"]>({})),
+  );
+  const interventionSucceeds = (calls: string[]) =>
+    Layer.mergeAll(
+      Layer.succeed(Redis, partial<Redis["Service"]>({ set: () => Effect.void })),
+      Layer.succeed(
+        AuthApi,
+        partial<AuthApi["Service"]>({
+          deleteSession: (token) =>
+            Effect.sync(() => {
+              calls.push(`deleteSession:${token}`);
+            }),
+        }),
+      ),
+    );
+  const decide = <R>(input: ReturnType<typeof inputWith>, layer: Layer.Layer<R>) =>
+    Effect.exit(enforceChallenge(input).pipe(Effect.provide(layer)));
+  const dyingSentry = (method: "captureException" | "captureMessage") =>
+    Layer.succeed(
+      SentryService,
+      partial<SentryService["Service"]>({ [method]: () => Effect.die(new Error("sentry down")) }),
+    );
+
+  test("AC-154 成功順序: setCookie → drop → deleteSession(token) が各 1 回で challenge", () =>
+    run(
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const exit = yield* decide(
+          inputWith(calls),
+          Layer.mergeAll(mfaEnabled, interventionSucceeds(calls)),
+        );
+        expect(exit).toEqual(Exit.succeed("challenge"));
+        expect(calls).toEqual(["setCookie", "drop", "deleteSession:token-unit"]);
+      }),
+    ));
+
+  test("AC-155 MFA 未有効は pass、介入の副作用は 0 回", () =>
+    run(
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const exit = yield* decide(
+          inputWith(calls),
+          Layer.mergeAll(enrollment({ verifiedAt: null }), untouched),
+        );
+        expect(exit).toEqual(Exit.succeed("pass"));
+        expect(calls).toEqual([]);
+        expect(sentry.exceptions.length).toBe(0);
+      }),
+    ));
+
+  test("AC-158 未知 provider は fail-closed: challenge、drop 1 回、cookie / Redis 0 回、Sentry warning 1 件", () =>
+    run(
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const exit = yield* decide(
+          inputWith(calls, { path: "/callback/:id", params: { id: "gitlab" } }),
+          Layer.mergeAll(mfaEnabled, untouched),
+        );
+        expect(exit).toEqual(Exit.succeed("challenge"));
+        expect(calls).toEqual(["drop"]);
+        expect(sentry.exceptions.length).toBe(1);
+        expect(sentry.exceptions[0]?.context?.tags).toEqual({ component: "mfa-challenge" });
+        expect(sentry.exceptions[0]?.context?.level).toBe("warning");
+      }),
+    ));
+
+  test("AC-178 判定の +1 SELECT が失敗しても fail-closed (介入はそのまま進む)", () =>
+    run(
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const failingRepo = Layer.succeed(
+          MfaTotpRepo,
+          partial<MfaTotpRepo["Service"]>({
+            readMfaVerification: () =>
+              Effect.fail(new DbError({ cause: new Error("mfa_totp unavailable") })),
+          }),
+        );
+        const exit = yield* decide(
+          inputWith(calls),
+          Layer.mergeAll(failingRepo, interventionSucceeds(calls)),
+        );
+        expect(exit).toEqual(Exit.succeed("challenge"));
+        expect(calls).toEqual(["setCookie", "drop", "deleteSession:token-unit"]);
+        expect(sentry.exceptions.length).toBe(1);
+        expect(sentry.exceptions[0]?.context?.tags).toEqual({ component: "mfa-challenge" });
+      }),
+    ));
+
+  test("AC-161 Sentry backend の defect でも介入経路は challenge で完走する", () =>
+    run(
+      Effect.gen(function* () {
+        const calls: string[] = [];
+        const exit = yield* decide(
+          inputWith(calls, { path: "/callback/:id", params: { id: "gitlab" } }),
+          Layer.mergeAll(mfaEnabled, untouched, dyingSentry("captureException")),
+        );
+        expect(exit).toEqual(Exit.succeed("challenge"));
+        expect(calls).toEqual(["drop"]);
+      }),
+    ));
+
+  // kill switch off の 2 case。時計の起点は QA-D-11 が残した「実時刻 + INTERVAL + 1」より INTERVAL 以上先。
+  const withClockAt = <A, E, R>(at: number, body: Effect.Effect<A, E, R>) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => spyOn(Date, "now").mockReturnValue(at)),
+      () => body,
+      (clock) => Effect.sync(() => clock.mockRestore()),
+    );
+
+  test("AC-162 Sentry backend の defect でも kill switch off は pass (kill switch が無効化されない)", () =>
+    run(
+      withKillSwitchOff(
+        Effect.gen(function* () {
+          const calls: string[] = [];
+          const t0 = Date.now() + 3 * KILL_SWITCH_REPORT_INTERVAL_MS;
+          const exit = yield* withClockAt(
+            t0,
+            decide(
+              inputWith(calls),
+              Layer.mergeAll(mfaEnabled, untouched, dyingSentry("captureMessage")),
+            ),
+          );
+          expect(exit).toEqual(Exit.succeed("pass"));
+          expect(calls).toEqual([]);
+        }),
+      ),
+    ));
+
+  test("AC-166 再通知の境界: INTERVAL - 1 では鳴らず、ちょうど INTERVAL で鳴る", () =>
+    run(
+      withKillSwitchOff(
+        Effect.gen(function* () {
+          const layer = Layer.mergeAll(mfaEnabled, untouched);
+          // AC-162 が残した値より INTERVAL 以上先に置き、ここで最終通知時刻を t0 に確定させる。
+          const t0 = Date.now() + 6 * KILL_SWITCH_REPORT_INTERVAL_MS;
+          const at = (offset: number) =>
+            withClockAt(t0 + offset, decide(inputWith([]), layer)).pipe(
+              Effect.map(() => killSwitchWarnings().length),
+            );
+
+          expect(yield* at(0)).toBe(1);
+          expect(yield* at(KILL_SWITCH_REPORT_INTERVAL_MS - 1)).toBe(1);
+          expect(yield* at(KILL_SWITCH_REPORT_INTERVAL_MS)).toBe(2);
+        }),
+      ),
     ));
 });
