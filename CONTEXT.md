@@ -124,6 +124,10 @@ _Avoid_: OTP / ワンタイムパスワード (メール OTP・SMS OTP を含む
 一次認証は成功したが第二要素が未検証、という中間状態そのもの。署名付き cookie `mfa_login_challenge` + Redis 1 key (TTL 600 秒) で 1 チャレンジを構成し、cookie が持つ challengeId で識別する。発行時点で一次認証が作った **session** は破棄されるため、チャレンジ保留中の user は consumer app からは未認証に見える。通過手段は **TOTP** コードまたは **リカバリーコード**。詳細: ADR-0016。
 _Avoid_: 2FA チャレンジ, 二段階認証画面 (画面は状態の表現の一つに過ぎない), pending session (session は存在しないため誤り)
 
+**kill switch**:
+**MFA チャレンジ** の強制を運用側で止める環境変数 (`MFA_CHALLENGE_ENABLED`)。値が `"false"` の時だけ止まり、未設定を含む他の値は強制する (fail-safe の既定)。止まっている間は一次認証だけで **session** が立つため、止めている事実を一定間隔で観測に残し silent にしない。止め方の判断と理由は ADR-0013 Consequences (ADR-0016 が引き継ぐ)。
+_Avoid_: feature flag (常設の切替でなく緊急停止の意味), disable (MFA の登録解除と紛れる)
+
 **リカバリーコード**:
 認証アプリを失った時に **MFA チャレンジ** を通過するための単回使用コード。**登録済み未有効**の間は同じ登録内容として再表示できるが、有効化後は残数のみ参照できる。1 本使うごとに残数が減り、再生成の導線は持たない (使い切った場合の救済は `management/disable-user-mfa.ts`)。詳細: ADR-0016。
 _Avoid_: バックアップコード (better-auth の旧 `backupCodes` — twoFactor プラグイン撤去によりもはや存在しない), 復旧コード, 緊急コード

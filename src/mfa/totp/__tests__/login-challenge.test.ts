@@ -23,8 +23,8 @@ import { ChallengeExpired, InvalidCode, Locked } from "../../error-mapping";
 import { completeLoginChallenge } from "../complete-login-challenge";
 import {
   attemptsKey as attemptsKeyOf,
-  buildLoginChallengeCookie,
   challengeKey,
+  openLoginChallenge,
   peekLoginChallenge,
   readLoginChallengeState,
 } from "../login-challenge";
@@ -71,14 +71,12 @@ describe("ログインチャレンジ", () => {
           method: "magic_link",
         });
 
-        // 発行 (buildLoginChallengeCookie) の cookie 素材が載る Set-Cookie の形をここで固定する。
-        const issued = yield* Effect.promise(() =>
-          buildLoginChallengeCookie({
-            userId: user.id,
-            redirectUrl: CONSUMER_CALLBACK,
-            method: "github",
-          }),
-        );
+        // 発行 (openLoginChallenge) の cookie 素材が載る Set-Cookie の形をここで固定する。
+        const issued = yield* openLoginChallenge({
+          userId: user.id,
+          redirectUrl: CONSUMER_CALLBACK,
+          method: "github",
+        });
         const reissued = new Headers();
         reissued.append(
           "set-cookie",

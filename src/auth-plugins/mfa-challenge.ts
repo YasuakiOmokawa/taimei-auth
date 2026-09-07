@@ -1,107 +1,153 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { deleteSessionCookie } from "better-auth/cookies";
-import { Effect } from "effect";
+import { Cause, Clock, Data, Effect, Ref } from "effect";
+import { AuthApi } from "../auth-service";
 import { isMfaChallengeEnabled } from "../mfa/kill-switch";
 import { FALLBACK_REDIRECT } from "../mfa/redirect-guard";
-import { readMfaChallengeRequired } from "../mfa/totp/challenge-required";
-import { buildLoginChallengeCookie } from "../mfa/totp/login-challenge";
+import { mfaChallengeRequired } from "../mfa/totp/challenge-required";
+import { type LoginChallengeCookie, openLoginChallenge } from "../mfa/totp/login-challenge";
 import { captureCause, SentryService } from "../sentry";
-import { isPrimaryAuthRoute, resolvePrimaryAuthMethod } from "./primary-auth-routes";
+import {
+  type AuthRouteMatch,
+  isPrimaryAuthRoute,
+  resolvePrimaryAuthMethod,
+} from "./primary-auth-routes";
 
 // 一次認証成功後の after-hook にチャレンジ強制を差し込む自前プラグイン (設計: ADR-0016)。
 // チャレンジ要否は自前 mfa_totp 行から導出する (+1 SELECT。secret 列に触れない射影 — D5)。
+// 本体は Effect program (enforceChallenge)、hook は入力を狭い型に写して runPromise し、redirect の throw だけを
+// 担う (ADR-0017 境界表の hook 行。同じ形: sign-in-observer.ts)。
 
 const MFA_CHALLENGE_PAGE = "/auth/mfa";
+const SENTRY_TAGS = { component: "mfa-challenge" } as const;
 
 // 止めている間は鳴り続ける (1 回きりだと warm isolate が黙る: ADR-0013 Consequences → 0016 が引き継ぐ)。
 // 6 時間はオンコール交代を必ず 1 回またぐ粒度。
 export const KILL_SWITCH_REPORT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-let killSwitchReportedAt = 0;
+// 最終通知時刻は isolate / process に 1 つ (module-level)。読みと更新を Ref.modify の 1 手にする。
+const killSwitchReportedAt = Ref.makeUnsafe(0);
 
-// runtime は関数内で動的 import する (auth.ts から静的に辿れる module の規則: src/CLAUDE.md「Effect様式」)。
-// 観測自体の失敗 (runtime の import / Sentry backend の throw) は握る。reject を素通しすると呼び出し側の
-// fail-closed (dropIssuedSession / challengeRequired = true) が走らない (旧 facade は同期・非 throw だった)。
-async function report(observe: Effect.Effect<void, never, SentryService>): Promise<void> {
-  try {
-    const { getRuntime } = await import("../runtime");
-    await getRuntime().runPromise(observe);
-  } catch (error) {
-    console.error("[mfa-challenge] failed to report to Sentry", error);
+// hook が program に渡す面。ctx 由来の副作用 (cookie 書き込み・session 破棄) は callback で受け取る。
+type IssuedSession = {
+  userId: string;
+  sessionToken: string;
+  route: AuthRouteMatch;
+  // 一次認証経路は `throw ctx.redirect(...)` で終わり、dispatch が location を responseHeaders へ載せてから
+  // after-hook を呼ぶ。クエリから組み直すと newUserCallbackURL 差し替えと絶対化の再現が要る。
+  location: string | null | undefined;
+  setCookie(cookie: LoginChallengeCookie): void;
+  // 失敗しない cookie クリア。後段 (Upstash REST の DEL、リトライ無し) が落ちてもブラウザに使える
+  // セッション cookie を残さない。upstream より前に出すのは、後段が落ちた時に sign-in-observer が
+  // チャレンジ未通過のセッションを記帳するのを防ぐため。
+  dropIssuedSession(): void;
+};
+
+// 未知 route は既定値に寄せず失敗にする (寄せると誤った method の sign_in audit が積まれる)。
+class UnmappedPrimaryAuthRoute extends Data.TaggedError("UnmappedPrimaryAuthRoute")<{
+  readonly route: AuthRouteMatch;
+}> {
+  // Sentry は Error の name / message しか載せない (ExtraErrorData 未設定) ので route を message に畳む。
+  override get message() {
+    return `mfa-challenge: unmapped primary auth route ${this.route.path} (id=${this.route.params?.id})`;
   }
 }
 
-const reportFailure = (error: unknown): Promise<void> =>
-  report(captureCause({ tags: { component: "mfa-challenge" } })({ cause: error }));
+// 観測自体の失敗 (Sentry backend の throw = defect) で hook を落とさない。ignoreCause は defect も握る
+// (Effect.ignore は E channel だけ)。log: true は Info になるので Error を明示する (旧 console.error 相当)。
+const bestEffort = Effect.ignoreCause({ log: "Error" });
 
-async function reportKillSwitchPeriodically(): Promise<void> {
-  const now = Date.now();
-  if (now - killSwitchReportedAt < KILL_SWITCH_REPORT_INTERVAL_MS) return;
-  killSwitchReportedAt = now;
-  await report(
+const reportFailure = (cause: Cause.Cause<unknown>) =>
+  bestEffort(captureCause({ tags: SENTRY_TAGS })({ cause: Cause.squash(cause) }));
+
+const reportKillSwitchPeriodically = Effect.gen(function* () {
+  const now = yield* Clock.currentTimeMillis;
+  const due = yield* Ref.modify(killSwitchReportedAt, (last): readonly [boolean, number] =>
+    now - last < KILL_SWITCH_REPORT_INTERVAL_MS ? [false, last] : [true, now],
+  );
+  if (!due) return;
+  yield* bestEffort(
     SentryService.use((sentry) =>
       sentry.captureMessage("mfa: challenge enforcement disabled by kill switch", {
         level: "warning",
-        tags: { component: "mfa-challenge" },
+        tags: SENTRY_TAGS,
       }),
     ),
   );
-}
+});
+
+const handOffToChallenge = Effect.fn("auth.handOffToMfaChallenge")(function* (
+  input: IssuedSession,
+) {
+  const method = resolvePrimaryAuthMethod(input.route);
+  if (!method) return yield* new UnmappedPrimaryAuthRoute({ route: input.route });
+  const cookie = yield* openLoginChallenge({
+    userId: input.userId,
+    redirectUrl: input.location ?? FALLBACK_REDIRECT,
+    method,
+  });
+  input.setCookie(cookie);
+  input.dropIssuedSession();
+  yield* (yield* AuthApi).deleteSession(input.sessionToken);
+});
+
+// E = never: 倒し方は全てここで決める (fail-closed の正本: ADR-0013 §1 → 0016 が引き継ぐ)。
+export const enforceChallenge = Effect.fn("auth.enforceMfaChallenge")(function* (
+  input: IssuedSession,
+) {
+  if (!isMfaChallengeEnabled(process.env.MFA_CHALLENGE_ENABLED)) {
+    yield* reportKillSwitchPeriodically;
+    return "pass" as const;
+  }
+  // 判定の +1 SELECT が読めない時も fail-closed — 素通しすると after-hook が一次認証ごと 500 にする
+  // (MFA 無効ユーザー含む)。チャレンジ画面へ倒し、再ログインに誘導する。
+  const required = yield* mfaChallengeRequired(input.userId).pipe(
+    Effect.catchCause((cause) => reportFailure(cause).pipe(Effect.as(true))),
+  );
+  if (!required) return "pass" as const;
+  // 介入を決めた後の失敗は全て fail-closed — セッション cookie を落としたまま同じチャレンジ画面へ倒す
+  // (未成立なら画面が再ログイン導線を出す)。cookie クリアを観測より先に置く。
+  yield* handOffToChallenge(input).pipe(
+    Effect.catchCause((cause) =>
+      Effect.andThen(Effect.sync(input.dropIssuedSession), reportFailure(cause)),
+    ),
+  );
+  return "challenge" as const;
+});
 
 const enforceChallengeAfterPrimaryAuth = createAuthMiddleware(async (ctx) => {
-  const issuedSession = ctx.context.newSession;
-  if (!issuedSession) return;
+  const issued = ctx.context.newSession;
+  if (!issued) return;
 
-  if (!isMfaChallengeEnabled(process.env.MFA_CHALLENGE_ENABLED)) {
-    await reportKillSwitchPeriodically();
-    return;
-  }
-  // 判定の +1 SELECT が読めない時も fail-closed — throw を素通しすると after-hook が一次認証ごと
-  // 500 にする (MFA 無効ユーザー含む)。チャレンジ画面へ倒し、再ログインに誘導する。
-  let challengeRequired: boolean;
+  const input: IssuedSession = {
+    userId: issued.user.id,
+    sessionToken: issued.session.token,
+    route: { path: ctx.path, params: ctx.params },
+    location: ctx.context.responseHeaders?.get("location"),
+    setCookie: (cookie) => ctx.setCookie(cookie.name, cookie.value, cookie.attributes),
+    dropIssuedSession: () => {
+      deleteSessionCookie(ctx, true);
+      ctx.context.setNewSession(null);
+    },
+  };
+
+  // runtime は関数内で動的 import する (auth.ts から静的に辿れる module の規則: src/CLAUDE.md「Effect様式」)。
+  // program は E = never なので catch に来るのは runtime の import / 構築失敗 (bug) だけ。それでも fail-closed。
+  // ただし kill switch は runtime に依存させない (止めている間は一次認証だけで session が立つ: CONTEXT.md)。
+  let decision: "pass" | "challenge";
   try {
-    challengeRequired = await readMfaChallengeRequired(issuedSession.user.id);
+    const { getRuntime } = await import("../runtime");
+    decision = await getRuntime().runPromise(enforceChallenge(input));
   } catch (error) {
-    await reportFailure(error);
-    challengeRequired = true;
+    console.error("[mfa-challenge] runtime unavailable", error);
+    if (!isMfaChallengeEnabled(process.env.MFA_CHALLENGE_ENABLED)) return;
+    input.dropIssuedSession();
+    decision = "challenge";
   }
-  if (!challengeRequired) return;
-
-  // 失敗しない cookie クリアを先頭に置き、後段 (Upstash REST の DEL、リトライ無し) が落ちてもブラウザに
-  // 使えるセッション cookie を残さない。upstream より前に出すのは、後段が落ちた時に sign-in-observer が
-  // チャレンジ未通過のセッションを記帳するのを防ぐため。
-  const dropIssuedSession = (): void => {
-    deleteSessionCookie(ctx, true);
-    ctx.context.setNewSession(null);
-  };
-
-  // 介入を決めた後の失敗は全て fail-closed — セッション cookie を落としたまま同じチャレンジ画面へ
-  // 倒す (未成立なら画面が再ログイン導線を出す。判断の正本: ADR-0013 §1 → 0016 が引き継ぐ)。
-  const handOffToChallenge = async (): Promise<void> => {
-    try {
-      // 未知 route は throw して fail-closed へ倒す (既定値に寄せると誤った method の sign_in audit が積まれる)。
-      const method = resolvePrimaryAuthMethod(ctx);
-      if (!method) throw new Error(`mfa-challenge: unmapped primary auth route ${ctx.path}`);
-      const cookie = await buildLoginChallengeCookie({
-        userId: issuedSession.user.id,
-        // 一次認証経路は `throw ctx.redirect(...)` で終わり、dispatch が location を responseHeaders へ
-        // 載せてから after-hook を呼ぶ。クエリから組み直すと newUserCallbackURL 差し替えと絶対化の再現が要る。
-        redirectUrl: ctx.context.responseHeaders?.get("location") ?? FALLBACK_REDIRECT,
-        method,
-      });
-      ctx.setCookie(cookie.name, cookie.value, cookie.attributes);
-      dropIssuedSession();
-      await ctx.context.internalAdapter.deleteSession(issuedSession.session.token);
-    } catch (error) {
-      // 失敗しない cookie クリアを観測より先に置く (観測を待つ間に何が起きてもセッションを残さない)。
-      dropIssuedSession();
-      await reportFailure(error);
-    }
-  };
-
-  await handOffToChallenge();
-  throw ctx.redirect(new URL(MFA_CHALLENGE_PAGE, ctx.context.baseURL).toString());
+  if (decision === "challenge") {
+    throw ctx.redirect(new URL(MFA_CHALLENGE_PAGE, ctx.context.baseURL).toString());
+  }
 });
 
 export const mfaChallenge = (): BetterAuthPlugin => ({

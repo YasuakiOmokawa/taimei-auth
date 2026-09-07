@@ -9,9 +9,9 @@ import { activate, enroll } from "../totp";
 import type { MfaTotpActor } from "../totp/contracts";
 import {
   attemptsKey,
-  buildLoginChallengeCookie,
   challengeKey,
   type ChallengeMethod,
+  openLoginChallenge,
 } from "../totp/login-challenge";
 import { observing } from "../../__tests__/live-runner";
 import { TestDb } from "../../__tests__/test-db";
@@ -201,14 +201,14 @@ export type IssuedChallenge = {
 
 const issuedChallengeIds: string[] = [];
 
-// 実 store (buildLoginChallengeCookie) で発行し、cookie 素材をそのまま headers に載せる。
+// 実 store (openLoginChallenge) で発行し、cookie 素材をそのまま headers に載せる。
 export const issueTestChallenge = (challenge: {
   userId: string;
   redirectUrl: string;
   method: ChallengeMethod;
-}): Effect.Effect<IssuedChallenge> =>
-  Effect.promise(() => buildLoginChallengeCookie(challenge)).pipe(
-    Effect.map((cookie) => {
+}) =>
+  openLoginChallenge(challenge).pipe(
+    Effect.map((cookie): IssuedChallenge => {
       const challengeId = cookie.value.slice(0, cookie.value.lastIndexOf("."));
       issuedChallengeIds.push(challengeId);
       return {
