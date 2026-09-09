@@ -121,7 +121,7 @@
                   {
                     "group": ["**/redis"],
                     "importNamePattern": "getRedis",
-                    "message": "getRedis はテストの key 直接操作専用の生 client accessor。production は redisStorage / incrementRateWindow の interface 越しに使うこと (src/redis.ts の役割コメント参照)"
+                    "message": "getRedis はテストの key 直接操作専用の生 client accessor。production は redisStorage / incrementRateWindow の interface 越しに使うこと"
                   },
                   {
                     "group": [

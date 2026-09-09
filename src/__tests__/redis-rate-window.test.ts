@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { toRateWindowResult } from "../redis";
 
 // MULTI INCR/EXPIRE/TTL の exec 応答 → RateWindowResult の純関数 (設計 AC-001〜AC-012)。
-// 何を契約逸脱として throw するか、なぜ 0 に潰さないかの根拠は redis.ts の toRateWindowResult 冒頭コメントが正本。
 describe("toRateWindowResult", () => {
   const contractError = /^incrementRateWindow:/;
 
