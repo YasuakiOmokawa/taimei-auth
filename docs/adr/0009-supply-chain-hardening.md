@@ -139,6 +139,14 @@ install 時 RCE は今回の TanStack worm のメインベクトル (payload は
 - リスク評価: browserslist は Tailwind / autoprefixer の build 時 (Vite build) にのみ使われ、本番 Worker bundle には同梱されない。query は本リポの固定設定のみで user 入力や外部 stats file は届かない
 - 手順は 3〜5 回目と同じ: `bun update` を使わず registry の実 metadata で `bun.lock` を差し替え → 非 clean `bun install` で当該 6 entry のみが差し替わることを確認 → `bun install --frozen-lockfile` (CI parity) / `bun audit` / `build:web` / typecheck / lint / 全 test の green を確認
 
+### audit gate 対応 7 回目 (2026-09-09, sharp)
+
+`bun audit` のライブ DB に sharp の新規 high advisory が出現し CI gate を落としたため対応。feature branch (コメント予算 gate) の実装差分とは無関係な依存側の変化。
+
+- **sharp** `GHSA-rgj7-g3m4-5g8c` (HIGH, `<0.35.4`, libheif 継承 CVE 群 `GHSA-g89c-p67h-r497` / `GHSA-2jg2-4ch7-h545`) → 3 回目対応で `overrides` に置いた `0.35.3` を `0.35.4` (2026-08-26) へ上げ、非 clean `bun install` で sharp family (`sharp` + `@img/sharp-*` 0.35.4、`@img/sharp-libvips-*` 1.3.3、いずれも 2026-08-26) だけが差し替わることを確認。7 日齢を満たすため `minimumReleaseAgeExcludes` 追加は不要
+- リスク評価と利用経路は 3 回目対応から不変 (`wrangler › miniflare` の dev tool 専用、本番 bundle に同梱されない)
+- override 経由のため in-place 差し替えは不要で、`package.json` の 1 行変更 + `bun install`。`bun install --frozen-lockfile` (CI parity) / `bun audit` / typecheck / lint / 全 test の green を確認
+
 ## Did not adopt
 
 ### D. publish-auth-client.yml の environment + required reviewers
