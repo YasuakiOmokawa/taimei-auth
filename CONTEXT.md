@@ -33,7 +33,7 @@ _Avoid_: company_type (より広義), business_type (業種と紛らわしい)
 _Avoid_: ユーザー (より広義、global user を指す時に使う), メンバーシップ (関係の方を指す時は **membership**)
 
 **role**:
-**membership** が表現する権限階層。`OWNER` / `ADMIN` / `MEMBER` の 3 段階。OWNER のみが事業所削除 / 課金変更 / OWNER 権限委譲を行える。ADMIN は OWNER を作れず、自身の昇格もできない (= OWNER 昇格は OWNER のみ承認可)。1 事業所に複数 OWNER を許容する。詳細: PR #55 → #63。
+**membership** が表現する権限階層。`OWNER` / `ADMIN` / `MEMBER` の 3 段階。OWNER のみが事業所削除 / 課金変更 / OWNER 権限委譲を行える。ADMIN は OWNER を作れず、自身の昇格もできない (= OWNER 昇格は OWNER のみ承認可)。1 事業所に複数 OWNER を許容するが、常に OWNER を 1 人以上持つ。最後の OWNER を減らす操作 (降格 / 除名 / 退会) は `last_owner` として拒否される。詳細: PR #55 → #63 / ADR-0010。
 _Avoid_: 役職 (人事ドメインの語と紛らわしい), permission (個別アクション認可と混同), member_type (freee の `Membership.Type` は業種分類で role とは別概念)
 
 **invitation**:

@@ -16,8 +16,7 @@ import { redisStorage } from "./redis";
 
 const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN;
 
-// Workers は per-request env のため module ロード時でなく initAuth() で構築する
-// (Workers は worker entry が initRedis→initAuth の順で呼び、実 Pool は request ごとに供給する)。詳細: ADR-0011
+// Workers は per-request env のため module ロード時でなく initAuth() で構築する (実 Pool は request ごとに供給、ADR-0011)。
 function buildAuth() {
   return betterAuth({
     baseURL: process.env.AUTH_SERVICE_URL,
@@ -119,7 +118,6 @@ function buildAuth() {
         // local は test 高速化で緩め、production は Hono middleware (src/rate-limit.ts) と独立した二重防御。
         rateLimit: isLocalEnvironment() ? { window: 1, max: 1000 } : { window: 60, max: 10 },
       }),
-      // この 2 つは登録順が正しさの前提 (詳細: src/auth-plugins/sign-in-observer.ts)。
       mfaChallenge(),
       signInObserver(),
     ],

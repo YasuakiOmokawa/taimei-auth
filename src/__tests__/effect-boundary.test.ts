@@ -58,7 +58,7 @@ describe("Stage 4 ゲート (seam / runtime primitive)", () => {
     expect(srcFiles("runBackground\\(").filter((f) => f !== "src/background.ts")).toEqual([]);
   });
 
-  test("Sentry facade の直呼びは src/sentry.ts と reportInternalFailures (wire-error) だけ", () => {
+  test("Sentry facade の直呼びは src/sentry.ts と settleCause (wire-error) だけ", () => {
     const allowed = new Set(["src/sentry.ts", "src/handlers/wire-error.ts"]);
     expect(
       srcFiles("Sentry\\.capture(Exception|Message)\\(").filter((f) => !allowed.has(f)),
@@ -77,7 +77,19 @@ describe("Stage 4 ゲート (seam / runtime primitive)", () => {
     expect(srcFiles("swallowAuditFailure\\(").filter((f) => !allowed.has(f))).toEqual([]);
   });
 
-  test("reportInternalFailures / captureThrown の呼び出しは adapter (run-route / run-rpc) と better-auth の結線 (auth.ts / app.ts) だけ", () => {
+  // OWNER が減りうる write の呼び手を固定する。per-member の write は OWNER≥1 の判定を持つ apply-change.ts だけ、
+  // 全削除 (removeMembershipsOfCompany) は事後 count が無い company/delete と backfill だけ。
+  test("OWNER を減らしうる membership write の呼び手は apply-change / company delete / backfill だけ", () => {
+    expect(
+      srcFiles("\\.(updateMembershipRole|deleteMembership|removeMembershipsOfCompany)\\(").sort(),
+    ).toEqual([
+      "src/account/backfill-orphan-cleanup.ts",
+      "src/company/delete.ts",
+      "src/membership/apply-change.ts",
+    ]);
+  });
+
+  test("settleCause / captureThrown の呼び出しは adapter (run-route / run-rpc) と better-auth の結線 (auth.ts / app.ts) だけ", () => {
     const allowed = new Set([
       "src/handlers/wire-error.ts",
       "src/handlers/run-route.ts",
@@ -85,9 +97,7 @@ describe("Stage 4 ゲート (seam / runtime primitive)", () => {
       "src/auth.ts",
       "src/app.ts",
     ]);
-    expect(
-      srcFiles("(reportInternalFailures|captureThrown)\\(").filter((f) => !allowed.has(f)),
-    ).toEqual([]);
+    expect(srcFiles("(settleCause|captureThrown)\\(").filter((f) => !allowed.has(f))).toEqual([]);
   });
 });
 

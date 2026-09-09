@@ -7,7 +7,7 @@ import { dbTest } from "./live-runner";
 import { TestDb } from "./test-db";
 
 // design §3.7 / ADR-0017: tx 内の failure は常に rollback。callback の Effect が Fail / Die した時に drizzle の tx が
-// commit されない (旧 RejectAccept / OwnerInvariantViolation の sentinel throw と同じ意味論) ことを DB で観測する。
+// commit されないことを DB で観測する。
 // 被験体の書き込みは production と同じ Effect face (MembershipRepo) で行う。
 class Rejected extends Data.TaggedError("Rejected")<{ readonly why: string }> {}
 

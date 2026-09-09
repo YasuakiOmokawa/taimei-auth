@@ -5,7 +5,7 @@ import { TestDb } from "../../__tests__/test-db";
 import { transferOwnership } from "../transfer-ownership";
 
 // transfer-ownership use-case (src/membership/transfer-ownership.ts) の DB 統合テスト。
-// 委譲 + audit の from/to / 二段委譲 / withOwnerLockGuard FOR UPDATE の並行直列化 semantic を検証。
+// 委譲 + audit の from/to / 二段委譲 / apply-change.ts の FOR UPDATE 並行直列化 semantic を検証。
 // 認可 (OWNER のみ / self-transfer 拒否 / not_found / already_owner) は Guard 層の責務。
 
 const P = "trans-test-";
@@ -64,7 +64,7 @@ describe("transferOwnership", () => {
   test("QA-D-04 並行 transfer (同 companyId, 別 to) → FOR UPDATE 直列化 / OWNER≥1 不変条件維持", () =>
     run(
       Effect.gen(function* () {
-        // withOwnerLockGuard の FOR UPDATE により同 companyId の 2 リクエストは直列化 (deadlock なく順次 commit)。
+        // apply-change.ts の FOR UPDATE により同 companyId の 2 リクエストは直列化 (deadlock なく順次 commit)。
         // Guard 層を skip して use-case を直接叩くと、同 actor から 2 回並行 transfer した場合は
         // 両 to が OWNER に昇格しうる (現行仕様: use-case は OWNER≥1 のみ守り OWNER≤1 は保証しない)。
         // Guard 経由の実運用では 2 回目の A は既に ADMIN で 403 に落ちるため運用問題にならない。

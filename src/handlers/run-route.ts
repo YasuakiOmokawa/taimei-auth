@@ -3,21 +3,14 @@ import { Effect, Exit } from "effect";
 import type { Context, Next } from "hono";
 import { type AppServices, getRuntime } from "../runtime";
 import {
-  classifyCause,
   internalErrorResponse,
-  reportInternalFailures,
+  isWireShaped,
   type RouteError,
-  type WireError,
+  settleCause,
   wireErrorResponse,
 } from "./wire-error";
 
-// Transport adapter (ADR-0017 Decision の境界表 2 行目と Sentry 項)。Effect program を runtime で走らせ、結果を HTTP に写像する唯一の
-// 点。Hono は handler の Error を飲み込んで 500 を返し rethrow しない (hono-base.js の errorHandler) ため、
-// defect も boundary error もここで Sentry に送る。Hono 既定と Sentry.withSentry には頼らない。
-//   failure (GuardError / DomainError / MfaError) → { error, details? } + status
-//   boundary error (DbError 等)        → Sentry(cause の identity) → 500
-//   defect (Die)                       → Sentry(原 Error) → 500
-//   interrupt                          → Sentry(Cause.pretty) → 500
+// Hono は handler の Error を飲み込んで 500 を返し rethrow しない (hono-base.js の errorHandler) ため、Sentry 送信は adapter が担う。
 
 export type RouteEffect<A> = Effect.Effect<A, RouteError, AppServices>;
 
@@ -43,8 +36,8 @@ export async function runMiddleware(
 type Adapter = "runRoute" | "runMiddleware";
 
 function causeToResponse(c: Context, cause: Cause.Cause<RouteError>, adapter: Adapter): Response {
-  const { failure, reports } = classifyCause<WireError>(cause);
-  reportInternalFailures(reports, `[${adapter}] ${c.req.method} ${c.req.path}`, {
+  const { failure } = settleCause(cause, isWireShaped, {
+    label: `[${adapter}] ${c.req.method} ${c.req.path}`,
     tags: { handler: adapter },
     extra: { method: c.req.method, path: c.req.path },
   });

@@ -13,8 +13,7 @@ export async function lockUserForCompanyCreation(tx: DbTx, userId: string): Prom
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
 }
 
-// ADR-0010 (BB-11): 事業所削除と member remove の同時実行を直列化する。withOwnerLockGuard と同じ
-// OWNER 行を FOR UPDATE で取り同じ行で contend させる (全削除なので OWNER≥1 の事後検証は不要)。
+// 事業所削除と membership の減る変更を同じ OWNER 行で contend させる。WHERE が片方だけ変わると直列化が silent に外れる。
 export async function lockOwnerMembershipsOfCompany(tx: DbTx, companyId: string): Promise<void> {
   await tx.execute(
     sql`SELECT id FROM membership WHERE company_id = ${companyId} AND role = 'OWNER' FOR UPDATE`,
@@ -161,7 +160,6 @@ export async function insertMembership(
     });
 }
 
-// OWNER 数が減る変更は呼び出し側で withOwnerLockGuard 内に包むこと。
 export async function updateMembershipRole(
   userId: string,
   companyId: string,
@@ -176,7 +174,6 @@ export async function updateMembershipRole(
     .then((rows) => rows.at(0));
 }
 
-// OWNER を減らす削除 (退会 / 除名) は withOwnerLockGuard 内で行うこと。
 export async function deleteMembership(
   userId: string,
   companyId: string,
@@ -189,32 +186,12 @@ export async function deleteMembership(
     .then((rows) => rows.at(0));
 }
 
-// OWNER ≥ 1 invariant をアプリ層で守る (詳細: PR #55 → #63)。outer transaction 必須で「OWNER 行 lock →
-// 操作 → 再 count 検証」を atomic にし、全 mutation 経路が必ずこれを経由する。
-export async function withOwnerLockGuard<T>(
-  tx: DbTx,
-  companyId: string,
-  fn: (tx: DbTx) => Promise<T>,
-): Promise<T> {
-  // DeleteCompany 経路と同じ OWNER 行で contend させる。WHERE が片方だけ変わると直列化が silent に外れる。
-  await lockOwnerMembershipsOfCompany(tx, companyId);
-  const result = await fn(tx);
-  const remaining = await tx
+export async function countOwnerMemberships(tx: DbTx, companyId: string): Promise<number> {
+  const rows = await tx
     .select({ count: sql<number>`count(*)::int` })
     .from(membership)
     .where(and(eq(membership.companyId, companyId), eq(membership.role, "OWNER")));
-  const remainingCount = remaining.at(0)?.count ?? 0;
-  if (remainingCount < 1) {
-    throw new OwnerInvariantViolation(companyId);
-  }
-  return result;
-}
-
-export class OwnerInvariantViolation extends Error {
-  constructor(public readonly companyId: string) {
-    super(`OWNER count must be >= 1 for company ${companyId}`);
-    this.name = "OwnerInvariantViolation";
-  }
+  return rows.at(0)?.count ?? 0;
 }
 
 export type BlockingCompany = { companyId: string; companyName: string };
