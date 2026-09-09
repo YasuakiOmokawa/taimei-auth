@@ -12,7 +12,7 @@ import { LastOwner } from "../errors";
 import { NotFound } from "../guard/errors";
 
 // change-role use-case (src/membership/change-role.ts) の DB 統合テスト。
-// 成功 / 200 短絡 (tx open せず audit 発火なし) / OwnerInvariantViolation → LastOwner /
+// 成功 / 200 短絡 (tx open せず audit 発火なし) / OWNER≥1 違反 → LastOwner /
 // NotFound (targetUserId 不在) / audit payload 全 key と mutation → audit の発火順を検証する。
 // 認可 (誰が誰の role を変えられるか) は Guard 層 (requireRoleChange) の責務なので本テストは
 // 認可通過後の呼び出しのみを扱う。
@@ -130,7 +130,7 @@ describe("changeRole", () => {
   test("QA-E-09 / QA-E-11 last_owner reject → audit 非発火 (rollback 契約)", () =>
     run(
       Effect.gen(function* () {
-        // withOwnerLockGuard 内で OWNER≥1 が破れた場合、mutation (UPDATE) と audit INSERT を
+        // apply-change.ts 内で OWNER≥1 が破れた場合、mutation (UPDATE) と audit INSERT を
         // 同 tx で rollback する。role_changed audit が漏れないことを直接検証する (accept 側の
         // recordInvitationAcceptRejected と違い、role 変更には rejected 用の別 tx audit は無い)。
         const db = yield* TestDb;
