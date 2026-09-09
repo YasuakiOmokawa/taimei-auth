@@ -17,9 +17,13 @@ import { runRoute } from "./run-route";
 
 export const accountMembership = new Hono();
 
-const setCurrentCompanyBody = z.object({ company_id: z.string().min(1).max(64) });
-const updateRoleBody = z.object({ role: roleBodySchema });
-const transferOwnershipBody = z.object({ to_user_id: z.string().min(1).max(64) });
+const setCurrentCompanyBody = z
+  .object({ company_id: z.string().min(1).max(64) })
+  .transform((d) => ({ targetCompanyId: d.company_id }));
+const updateRoleBody = z.object({ role: roleBodySchema }).transform((d) => ({ nextRole: d.role }));
+const transferOwnershipBody = z
+  .object({ to_user_id: z.string().min(1).max(64) })
+  .transform((d) => ({ toUserId: d.to_user_id }));
 
 // POST 事業所切替。target の active membership を switchCompany use-case が tx 内で再検証し
 // last_used_company_id を更新する。TOCTOU / 短絡 / audit は use-case 側 (ADR-0012)。
@@ -28,9 +32,7 @@ accountMembership.post("/api/account/current-company", (c) =>
     c,
     Effect.gen(function* () {
       const actor = yield* requireActor(c.req.raw.headers);
-      const parsed = yield* parseZodBody(c, setCurrentCompanyBody, {
-        transform: (d) => ({ targetCompanyId: d.company_id }),
-      });
+      const parsed = yield* parseZodBody(c, setCurrentCompanyBody);
       const result = yield* switchCompany({
         actorUserId: actor.id,
         fromCompanyId: actor.lastUsedCompanyId,
@@ -53,7 +55,7 @@ accountMembership.post("/api/account/companies/:companyId/members/:targetUserId/
         headers: c.req.raw.headers,
         companyId,
         targetUserId,
-        parseBody: parseZodBody(c, updateRoleBody, { transform: (d) => ({ nextRole: d.role }) }),
+        parseBody: parseZodBody(c, updateRoleBody),
       });
       yield* changeRole({
         actorUserId: grant.actor.id,
@@ -102,9 +104,7 @@ accountMembership.post("/api/account/companies/:companyId/transfer-ownership", (
       const grant = yield* requireTransferOwnership({
         headers: c.req.raw.headers,
         companyId,
-        parseBody: parseZodBody(c, transferOwnershipBody, {
-          transform: (d) => ({ toUserId: d.to_user_id }),
-        }),
+        parseBody: parseZodBody(c, transferOwnershipBody),
       });
       yield* transferOwnership({
         actorUserId: grant.actor.id,

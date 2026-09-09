@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { type Context, Hono } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 
 import type { OrgCode } from "@/db/repositories/company";
@@ -8,7 +8,7 @@ import { deleteCompany } from "../company/delete";
 import { updateCompanyInfo } from "../company/update";
 import { requireActor, requireMembership } from "../membership/guard";
 import { MembershipRepo } from "../membership/ports";
-import { parseZodBody } from "./parse-body";
+import { parseZodBody, parseZodBodyWithDetails } from "./parse-body";
 import { runRoute } from "./run-route";
 
 // SPA から呼ばれる事業所操作。Connect RPC (/rpc/*) は X-Service-Key 必須で browser から付与できないため、
@@ -17,17 +17,13 @@ import { runRoute } from "./run-route";
 export const accountCompany = new Hono();
 
 // 作成 (signup / add) / 編集の body は同形。1 箇所に集約して制約が route 間で silent にずれるのを防ぐ。
-const companyBody = z.object({
-  name: z.string().trim().min(1).max(100),
-  org_code: z.enum(["PERSONAL", "CORPORATE"]),
-});
-
-// parse 失敗 → InvalidArgument (400) は parseZodBody が担う。400 に zod details を載せるのは作成系だけ (wire 契約)。
-const parseCompanyBody = (c: Context, opts: { withDetails: boolean }) =>
-  parseZodBody(c, companyBody, {
-    withDetails: opts.withDetails,
-    transform: (d) => ({ name: d.name, orgCode: d.org_code as OrgCode }),
-  });
+// 400 に zod details を載せるのは作成系だけ (wire 契約)。
+const companyBody = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    org_code: z.enum(["PERSONAL", "CORPORATE"] as const satisfies readonly OrgCode[]),
+  })
+  .transform((d) => ({ name: d.name, orgCode: d.org_code }));
 
 accountCompany.get("/api/account/memberships", (c) =>
   runRoute(
@@ -83,7 +79,7 @@ accountCompany.post("/api/account/companies", (c) =>
     c,
     Effect.gen(function* () {
       const actor = yield* requireActor(c.req.raw.headers);
-      const input = yield* parseCompanyBody(c, { withDetails: true });
+      const input = yield* parseZodBodyWithDetails(c, companyBody);
       const result = yield* createSignupCompany(actor.id, input);
       return c.json(serializeCreatedCompany(result));
     }),
@@ -97,7 +93,7 @@ accountCompany.post("/api/account/companies/add", (c) =>
     c,
     Effect.gen(function* () {
       const actor = yield* requireActor(c.req.raw.headers);
-      const input = yield* parseCompanyBody(c, { withDetails: true });
+      const input = yield* parseZodBodyWithDetails(c, companyBody);
       const created = yield* addCompany(actor.id, input);
       return c.json(serializeCreatedCompany(created));
     }),
@@ -111,7 +107,7 @@ accountCompany.post("/api/account/companies/:companyId", (c) =>
     Effect.gen(function* () {
       const companyId = c.req.param("companyId");
       const { actor } = yield* requireMembership(c.req.raw.headers, companyId, "OWNER");
-      const input = yield* parseCompanyBody(c, { withDetails: false });
+      const input = yield* parseZodBody(c, companyBody);
       const result = yield* updateCompanyInfo({ actorUserId: actor.id, companyId, input });
       return c.json({
         company: {

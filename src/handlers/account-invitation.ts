@@ -12,19 +12,21 @@ import { InvitationRepo } from "../invitation/ports";
 import { revokeInvitation } from "../invitation/revoke";
 import { requireInvitationAccept, requireInvite, requireMembership } from "../membership/guard";
 import { MembershipRepo } from "../membership/ports";
-import { parseZodBody, roleBodySchema } from "./parse-body";
+import { parseZodBody, parseZodBodyWithDetails, roleBodySchema } from "./parse-body";
 import { runRoute } from "./run-route";
 
 export const accountInvitation = new Hono();
 
-const createInvitationBody = z.object({
-  email: z.email().max(320),
-  role: roleBodySchema,
-});
+const createInvitationBody = z
+  .object({
+    email: z.email().max(320),
+    role: roleBodySchema,
+  })
+  .transform((d) => ({ email: d.email.toLowerCase(), role: d.role }));
 
-const acceptInvitationBody = z.object({
-  invitation_token: z.string().min(1).max(256),
-});
+const acceptInvitationBody = z
+  .object({ invitation_token: z.string().min(1).max(256) })
+  .transform((d) => ({ token: d.invitation_token }));
 
 // GET メンバー一覧 (所属メンバーなら誰でも閲覧可)
 accountInvitation.get("/api/account/companies/:companyId/members", (c) =>
@@ -81,10 +83,7 @@ accountInvitation.post("/api/account/companies/:companyId/invitations", (c) =>
       const { actor, email, role } = yield* requireInvite({
         headers: c.req.raw.headers,
         companyId,
-        parseBody: parseZodBody(c, createInvitationBody, {
-          withDetails: true,
-          transform: (d) => ({ email: d.email.toLowerCase(), role: d.role }),
-        }),
+        parseBody: parseZodBodyWithDetails(c, createInvitationBody),
       });
       const result = yield* createInvitation({ actorUserId: actor.id, companyId, email, role });
       const invitationRow = result.invitation;
@@ -139,9 +138,7 @@ accountInvitation.post("/api/account/accept-invitation", (c) =>
     Effect.gen(function* () {
       const grant = yield* requireInvitationAccept({
         headers: c.req.raw.headers,
-        parseBody: parseZodBody(c, acceptInvitationBody, {
-          transform: (d) => ({ token: d.invitation_token }),
-        }),
+        parseBody: parseZodBody(c, acceptInvitationBody),
       });
       if (grant.mode === "reused") {
         return c.json({ ok: true, company_id: grant.companyId, reused: true });
