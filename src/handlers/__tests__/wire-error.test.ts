@@ -1,4 +1,14 @@
-import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  spyOn,
+  test,
+} from "bun:test";
+import { Cause } from "effect";
 import { recordSentryExceptions } from "../../__tests__/sentry-recorder";
 import { DbError } from "../../errors";
 import { consoleSentryBackend, setSentryBackend } from "../../sentry";
@@ -10,6 +20,8 @@ import { ExpiredOrUsed, Forbidden, InvalidArgument, NotFound } from "../../membe
 import {
   captureThrown,
   internalErrorResponse,
+  isWireShaped,
+  settleCause,
   type WireError,
   wireErrorResponse,
 } from "../wire-error";
@@ -65,8 +77,48 @@ describe("failure class の wire 直列化 (旧 REASON_TO_ERROR / 旧 respond.ts
   }
 });
 
+describe("settleCause", () => {
+  const captured = recordSentryExceptions();
+  const report = { label: "[t]", tags: { handler: "t" } };
+  let spy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    captured.length = 0;
+    spy = spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => spy.mockRestore());
+
+  test("boundary failure と wire failure が同居すると wire を返し boundary の cause を warning で送る", () => {
+    const cause = new Error("pg down");
+    const forbidden = new Forbidden();
+    const settled = settleCause(
+      Cause.combine(Cause.fail(new DbError({ cause })), Cause.fail(forbidden)),
+      isWireShaped,
+      report,
+    );
+    expect(settled.failure).toBe(forbidden);
+    expect(settled.reported).toEqual([cause]);
+    expect(captured).toEqual([[cause, { tags: report.tags, level: "warning" }]]);
+  });
+
+  test("wire 形でない failure は failure 無しで error として送る", () => {
+    const rogue = { _tag: "Rogue" };
+    const settled = settleCause(Cause.fail(rogue), isWireShaped, report);
+    expect(settled.failure).toBeUndefined();
+    expect(settled.reported).toEqual([rogue]);
+    expect(captured[0]?.[1]?.level).toBe("error");
+  });
+
+  test("interrupt だけの Cause は Cause.pretty の Error を 1 件送る", () => {
+    const settled = settleCause(Cause.interrupt(), isWireShaped, report);
+    expect(settled.failure).toBeUndefined();
+    expect(settled.reported.length).toBe(1);
+    expect(settled.reported[0]).toBeInstanceOf(Error);
+    expect((settled.reported[0] as Error).message).toMatch(/interrupt/i);
+  });
+});
+
 // captureThrown: Effect の外 (better-auth の onAPIError.onError) で受けた thrown value を adapter と同じ
-// classifyCause の規則で Sentry に送る。
+// settleCause の規則で Sentry に送る。
 describe("captureThrown", () => {
   const captured = recordSentryExceptions();
   const tags = { component: "better-auth" };
@@ -89,8 +141,7 @@ describe("captureThrown", () => {
     expect(captured[n]?.[1]?.level).toBe("error");
   });
 
-  // canSerializeToWire を常に false にするので wire-shaped な failure も内部失敗として reports に載る
-  // (classifyCause の「reports 空」fallback は Cause.fail 1 件からは到達しない)。
+  // wire が無いので wire-shaped な failure も内部失敗として送る。
   test("wire-shaped な値も痕跡ゼロにせず error で送る", () => {
     const failure = new Forbidden();
     const n = captured.length;
