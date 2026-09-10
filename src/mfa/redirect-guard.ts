@@ -2,27 +2,20 @@ import { Effect } from "effect";
 import { getTrustedOrigins } from "../env";
 import { SentryService } from "../sentry";
 
-// チャレンジ成功時に返す遷移先の出口検証 (検証ポリシーの位置づけ: ADR-0003)。
-// src/url-allowlist.ts の validateRedirectUrl を使えないのはチャレンジ介入点に service_name が
-// 無いため — allowlist の軸を service でなく trusted origin に取る。
-
 export const FALLBACK_REDIRECT = "/account";
 
 type RejectionReason = "not_a_same_origin_path" | "origin_not_trusted";
 
-// better-auth の trusted-origins 相対 path 検証 (1.6.23 matchesOriginPattern) と同一判定の regex。
-// 公開 export が無いためハードコピー (文字クラス内のエスケープのみ linter が外し、判定は同値)。
-// 素朴な「/ 始まりかつ // でない」では `/\evil.com` が \ → / 正規化で外部 origin に化ける。
+// better-auth 1.6.23 matchesOriginPattern と同値 (公開 export 無し)。素朴な判定では `/\evil.com` が化ける。
 const SAME_ORIGIN_PATH = /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/;
 
-// 出口は入口 (better-auth の trustedOrigins) より意図的に厳格で、origin の完全一致だけを通す。
-// チャレンジ通過はセッション発行そのものなので解釈差を持ち込まない。wildcard 運用が始まったら再検討する。
+// 出口は入口 (trustedOrigins) より意図的に厳格で、origin の完全一致だけを通す。
 function isTrustedAbsoluteUrl(candidate: string): boolean {
   const url = parseUrl(candidate);
   if (!url) return false;
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (url.username !== "" || url.password !== "") return false;
-  // fragment 付きは拒否する (相対 path 側の regex が `$` 終端で弾くのと挙動を揃える)。
+  // fragment 拒否は相対 path 側の regex (`$` 終端) と挙動を揃えるため。
   if (url.hash !== "") return false;
   return getTrustedOrigins().some((entry) => parseUrl(entry)?.origin === url.origin);
 }

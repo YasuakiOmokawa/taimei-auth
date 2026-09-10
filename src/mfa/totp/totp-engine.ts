@@ -1,8 +1,7 @@
 import { generateRandomString } from "better-auth/crypto";
 import * as OTPAuth from "otpauth";
 
-// otpauth の薄いラッパ (I/O なし)。period 30 / digits 6 / window ±1 は旧プラグイン構成と同値で、
-// 既存登録ユーザーの認証アプリ再登録を要求しない (D2 でデータは破棄するが方式互換は保つ)。
+// period 30 / digits 6 / window ±1 は旧構成と同値 — 既存ユーザーに認証アプリ再登録を要求しない。
 
 const PERIOD = 30;
 const DIGITS = 6;
@@ -11,8 +10,7 @@ const WINDOW = 1;
 const SECRET_LENGTH = 32;
 const TOTP_CODE = /^[0-9]{6}$/;
 
-// ASCII 英数 32 字 (約 190bit) をバイト列にする。生バイト乱数にしないのは base32 → 文字列 → バイトの
-// 往復で UTF-8 破損するため (ADR-0016)。バイアス無しの乱数列は better-auth の公開 export に任せる。
+// 生バイト乱数にしないのは base32 → 文字列 → バイトの往復で UTF-8 破損するため。
 export function generateTotpSecret(): Uint8Array {
   return new TextEncoder().encode(generateRandomString(SECRET_LENGTH, "a-z", "A-Z", "0-9"));
 }
@@ -34,7 +32,7 @@ export function buildTotpUri(input: {
   return asTotp(input.secret, { issuer: input.issuer, label: input.accountLabel }).toString();
 }
 
-// 受理した timestep (counter + delta) を返す。呼び出し側はこの値の単調消費でリプレイを拒む。
+// 返す timestep は、呼び出し側が単調消費でリプレイを拒むための値。
 export function matchTotpCode(
   secret: Uint8Array,
   code: string,

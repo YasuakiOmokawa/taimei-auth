@@ -7,9 +7,7 @@ import { decryptValue, secretCipher } from "./cipher";
 import { MfaKeyring, MfaNotifier, MfaSessions, MfaTotpRepo } from "./ports";
 import { matchTotpCode } from "./totp-engine";
 
-// 有効化。検証順序が契約 (§4.3): 復号 + コード検証 → revoke → 確定 UPDATE。
-// 誤コードは revoke より前で終わり他デバイスを失効させない。revoke を確定より先に置くのは、
-// 逆順で revoke が失敗すると「有効化済みなのに他 session が残る」窓が開くため。session rotate は行わない。
+// revoke を確定 UPDATE より先に置くのは、逆順だと有効化済みなのに他 session が残る窓が開くため。
 export const activate = Effect.fn("mfa.activate")(function* (input: {
   actor: MfaTotpActor;
   headers: Headers;
@@ -30,12 +28,11 @@ export const activate = Effect.fn("mfa.activate")(function* (input: {
   const sessions = yield* MfaSessions;
   const sessionChanges = yield* sessions.revokeOthers(input.headers);
 
-  // false = 並行敗者 (勝者が verified 化済み)。識別子はここで再照合されるため評決は already_enabled。
+  // false = 並行敗者 (勝者が verified 化済み)。
   if (!(yield* mfa.activateMfaTotp(input.actor.id, row.enrollmentId, timestep))) {
     return yield* new AlreadyEnabled();
   }
 
-  // best-effort 記帳 (CONTEXT.md)。
   const { ip, userAgent } = getClientContext(input.headers);
   yield* appendAuditLogBestEffort({
     eventType: "mfa_enabled",

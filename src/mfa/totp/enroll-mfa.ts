@@ -9,9 +9,6 @@ import { MfaIssuer, MfaKeyring, MfaTotpRepo } from "./ports";
 import { generateRecoveryCodes } from "./recovery-codes";
 import { buildTotpUri, generateTotpSecret } from "./totp-engine";
 
-// 登録開始 (secret 発行)。並行決着は insert の ON CONFLICT が担い、敗者は勝者の内容へ収束する。
-// 「登録済み未有効の間は同じ登録内容を再表示できる」契約 (CONTEXT.md) は replayPendingEnrollment が実装する。
-
 const replayPendingEnrollment = Effect.fn("mfa.enroll.replay")(function* (
   actor: MfaTotpActor,
   row: MfaTotpRow,
@@ -22,7 +19,7 @@ const replayPendingEnrollment = Effect.fn("mfa.enroll.replay")(function* (
   const issuer = yield* MfaIssuer.use((i) => i.appName);
 
   const secret = yield* Effect.promise(() => decryptValue(ring, secretCipher(row), actor.id));
-  // 未有効の間は消費経路が無いため全件が未使用のまま残っている (id 昇順 = 発行順)。
+  // 未有効の間は消費経路が無いため全件が未使用のまま残っている。
   const stored = yield* MfaTotpRepo.use((mfa) => mfa.listUnusedRecoveryCodes(actor.id));
   const recoveryCodes = yield* Effect.all(
     stored.map((code) => Effect.promise(() => decryptText(ring, codeCipher(code), actor.id))),
@@ -92,8 +89,7 @@ export const enroll = Effect.fn("mfa.enroll")(function* (input: { actor: MfaTotp
     } satisfies TotpEnrollmentMaterial;
   }
 
-  // ON CONFLICT の敗者は再読して勝者の内容へ収束する。読んだ行が消えていた稀な交差
-  // (勝者の直後 disable 等) は「もう一度最初から」へ倒す。
+  // 敗者は再読して勝者の内容へ収束する。行が消えていた交差は「もう一度最初から」へ倒す。
   const winner = yield* mfa.findMfaTotp(input.actor.id);
   if (!winner) return yield* new ChallengeExpired();
   return yield* replayPendingEnrollment(input.actor, winner);
