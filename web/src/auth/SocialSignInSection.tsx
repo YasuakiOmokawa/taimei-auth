@@ -2,8 +2,7 @@ import { Github, Loader2 } from "lucide-react";
 
 import { Button } from "../shared/ui/button";
 
-// Magic Link フォーム下の SNS ログイン区画。招待経由では GitHub を隠す — invitation の strict email match は
-// Magic Link 経路が前提で、GitHub の email が招待先と一致する保証がないため。SignIn / SignUp で共有する。
+// 招待経由で GitHub を隠すのは invitation の strict email match が Magic Link 経路前提のため
 export const SocialSignInSection = ({
   isInvitation,
   disabled,

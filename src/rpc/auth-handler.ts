@@ -28,13 +28,10 @@ const verifySessionError = (reason: Result) =>
     },
   });
 
-// session 検証の本体。test が port の test Layer を差し替えて直接走らせられるよう program を分離する
-// (auth-entry-redirect.ts と同じ形)。
 export const verifySessionProgram = Effect.fn("rpc.verifySession")(function* (req: {
   sessionToken: string;
 }) {
-  // auth.api.getSession で secondaryStorage (Redis) の payload を取り、user.revision と DB の最新値を
-  // 比較する。参照するのは cookieCache でなく Redis 側 payload (handler は cookie を送らないため)。
+  // 参照するのは cookieCache でなく Redis 側 payload (handler は cookie を送らないため)。
   const headers = new Headers();
   headers.set("cookie", buildSessionCookieHeader(req.sessionToken));
 
@@ -45,7 +42,6 @@ export const verifySessionProgram = Effect.fn("rpc.verifySession")(function* (re
     return verifySessionError(Result.SESSION_NOT_FOUND);
   }
 
-  // cookieCache を bypass し DB の最新値を毎回読む。hot path のため 2 つの SELECT を 1 RTT に畳む。
   const users = yield* UserRepo;
   const sessions = yield* SessionRepo;
   const [dbUser, revokedAt] = yield* Effect.all(
@@ -59,11 +55,9 @@ export const verifySessionProgram = Effect.fn("rpc.verifySession")(function* (re
     return verifySessionError(Result.REVOKED);
   }
 
-  // revision 導入前に発行された Redis session payload にはフィールドが無いため optional で読む。
-  // undefined は cache miss として整合判定を skip し一斉ログアウト loop を防ぐ (失効で自然消滅)。
+  // revision 導入前の payload は field を持たない。undefined は判定を skip し一斉ログアウト loop を防ぐ。
   const cachedRevision: number | undefined = result.user.revision;
   if (cachedRevision !== undefined && dbUser.revision !== cachedRevision) {
-    // signOut 例外は握り必ず REVISION_OUTDATED を返す (consumer は再ログインに倒すため)。
     yield* authApi
       .signOut(headers)
       .pipe(
@@ -85,8 +79,6 @@ export const verifySessionProgram = Effect.fn("rpc.verifySession")(function* (re
   });
 });
 
-// 各 method は Effect program を runRpc (Connect 側の唯一の写像点) で走らせる (ADR-0017)。better-auth API は
-// すべて AuthApi service 経由 (失敗は AuthApiError = boundary、wire は Code.Unknown + 元 message)。
 export function registerAuthService(router: ConnectRouter) {
   router.service(AuthService, {
     verifySession: (req) => runRpc(verifySessionProgram(req)),
@@ -106,14 +98,9 @@ export function registerAuthService(router: ConnectRouter) {
     signOut: (req) =>
       runRpc(
         Effect.gen(function* () {
-          // auth.api.signOut 経由で Redis cookieCache と DB session を一括 invalidate する。例外は透過させ
-          // (defect → runRpc が Internal 化) consumer に正しく伝える。
           const headers = new Headers();
           headers.set("cookie", buildSessionCookieHeader(req.sessionToken));
-          // sign-out path は better-auth hooks.after で ctx.context.session が populate されない (1.6.9) ため、
-          // signOut 前に session lookup して user_id を取る。IP / userAgent は "unknown" 固定: /rpc/* は consumer
-          // backend からの service-to-service 呼び出し (requireServiceKey) で、ctx.requestHeader が持つのは
-          // consumer server の identity であって end user のものではない (request-context の信頼 hop 判定も通らない)。
+          // better-auth 1.6.9 の sign-out は hooks.after で session が populate されないため先に lookup する。
           const authApi = yield* AuthApi;
           const result = yield* authApi.getSession(headers).pipe(Effect.orElseSucceed(() => null));
           const userId = result?.user?.id;

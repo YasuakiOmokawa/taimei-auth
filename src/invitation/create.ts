@@ -7,9 +7,7 @@ import { Transaction } from "../transaction";
 import { InvitationRepo } from "./ports";
 import { consumeInvitationQuota } from "./rate-limit";
 
-// ADR-0012 (Use-case 層): 招待作成手続 (idempotency + rate-limit + INSERT + audit)。rate-limit を tx 内へ
-// 統合しないのは、並行重複招待時の Redis カウンタ消費パターンが変わり監視系が silent に drift するため。
-// 真並行では rate 2 回消費 + PENDING 2 行 INSERT があり得る (現行仕様。冪等契約は逐次 semantic で担保)。
+// rate-limit を tx 内へ統合しないのは、並行重複招待時の Redis カウンタ消費が変わり監視系が drift するため。
 
 const INVITE_TTL_MS = 24 * 60 * 60 * 1000; // invitation は 24h 有効 (CONTEXT.md 'invitation')
 

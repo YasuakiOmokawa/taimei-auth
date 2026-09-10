@@ -15,8 +15,6 @@ type BackfillReport = {
 
 type GhostMembershipPurge = { ghostMembershipCount: number; orphanUserIds: string[] };
 
-// ADR-0010 PR-4: D1 導入前に soft delete された company に残る ghost membership と orphan アカウントを
-// 掃除する one-shot backfill。rollback 不能なため dry-run で対象を確認してから execute=true で実行する。
 export const backfillOrphanCleanup = Effect.fn("account.backfillOrphanCleanup")(function* (opts: {
   execute: boolean;
 }) {
@@ -51,7 +49,6 @@ const previewGhostMembershipPurge = Effect.fn("account.previewGhostMembershipPur
   } satisfies GhostMembershipPurge;
 });
 
-// DeleteCompany と同じ順 (invitation 失効 → membership 削除 → last_used 付け替え → orphan 削除) を守る。
 const purgeGhostMemberships = Effect.fn("account.purgeGhostMemberships")(function* (
   companyId: string,
 ) {

@@ -4,7 +4,6 @@ import { Data, Exit } from "effect";
 import { isWireShaped, type RouteError, settleCause } from "../handlers/wire-error";
 import { type AppServices, getRuntime } from "../runtime";
 
-// code は Connect の Code enum に限る (旧 `new ConnectError(msg, Code.X)` が持っていた enum 制約を保つ)。
 export class RpcError extends Data.TaggedError("RpcError")<{
   readonly code: Code;
   readonly message: string;
@@ -30,7 +29,6 @@ export async function runRpc<A>(program: RpcEffect<A>): Promise<A> {
   throw causeToConnectError(exit.cause);
 }
 
-// Connect の wire 語彙は HTTP 側より 1 つ広い: RpcError は自前の message + Code を持つ。
 const isConnectWire = (e: unknown): boolean => e instanceof RpcError || isWireShaped(e);
 
 function causeToConnectError(cause: Cause.Cause<RouteError | RpcError>): ConnectError {
@@ -40,6 +38,6 @@ function causeToConnectError(cause: Cause.Cause<RouteError | RpcError>): Connect
   });
   if (failure instanceof RpcError) return new ConnectError(failure.message, failure.code);
   if (failure) return new ConnectError(failure.error, statusToCode(failure.status));
-  // consumer (packages/auth-client) は message を表示に使うため、Code.Unknown + 元 message を保ち "internal error" に潰さない。
+  // consumer は message を表示に使うため Code.Unknown + 元 message を保ち "internal error" に潰さない。
   return ConnectError.from(reported[0]);
 }

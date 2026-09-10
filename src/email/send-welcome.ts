@@ -8,7 +8,6 @@ export const sendWelcomeEmail = Effect.fn("email.sendWelcome")(function* (
   userName?: string | null,
 ) {
   if (isLocalEnvironment()) {
-    // local は console.log fallback (e2e がログから拾うため文言を変えない)。
     yield* Effect.sync(() => console.log(`[TEST] Welcome email for ${email}`));
     return;
   }

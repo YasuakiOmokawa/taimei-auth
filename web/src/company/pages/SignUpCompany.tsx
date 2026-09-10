@@ -30,8 +30,7 @@ import { createCompany, type OrgCode } from "../company-api";
 
 type GuardStatus = "loading" | "needs-input" | "already-has-company";
 
-// signup フローの「事業所登録」ステップ (未認証 → /auth/、membership ≥ 1 → 完了済として redirect)。
-// 本 route 唯一の client guard: server guard は redirect ループ回避で本 path を除外し、SessionGuard も /auth/* を包まない。
+// server guard は本 path を除外し SessionGuard も /auth/* を包まないため client guard をここに置く
 export const SignUpCompany = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -69,7 +68,6 @@ export const SignUpCompany = () => {
         setStatus("needs-input");
       })
       .catch((e) => {
-        // フォームを出しても送信で再び 401 になるため session を破棄する。
         if (isStaleSessionError(e)) {
           discardStaleSession(() => authClient.signOut());
           return;

@@ -1,8 +1,4 @@
-// MFA 運用救済 CLI (位置づけと手順: ADR-0016 §8.1 / README.md の運用節)。
-//   bun run management/disable-user-mfa.ts <userId>
-// 1 tx で mfa_totp 行とリカバリーコードを全削除する。guard 参加・protocol 照合は存在しない (ADR-0016)。
-// 登録済み未有効 (verifiedAt NULL、self-service の disable が NotEnabled で拒む状態) の行も消すが、MFA は有効でなかったので
-// changed: false とし、mfa_disabled の記帳と「無効にしました」メールは出さない (どちらも起きていない遷移の記録になる)。
+// MFA 運用救済 CLI (ロックアウトの唯一の出口。手順: README 運用節)。
 import { Effect } from "effect";
 import { UserRepo } from "../src/account/ports";
 import { appendAuditLogBestEffort } from "../src/audit/report-failure";
@@ -11,8 +7,6 @@ import { MfaTotpRepo } from "../src/mfa/totp/ports";
 import { getRuntime } from "../src/runtime";
 import { Transaction } from "../src/transaction";
 
-// CLI の出力形 (wire ではない)。失敗 class ではなく Result のまま持つのは toDisableUserMfaReport が
-// stream / exit code / JSON キーへ写す純関数だから。
 export type ForceDisableResult =
   | { ok: false; error: "not_found" }
   | { ok: true; changed: false }
@@ -37,7 +31,6 @@ export const forceDisableMfa = Effect.fn("management.forceDisableMfa")(function*
   if (deleted === 0 || !wasEnabled)
     return { ok: true, changed: false } satisfies ForceDisableResult;
 
-  // best-effort 記帳 (CONTEXT.md)。
   yield* appendAuditLogBestEffort({
     eventType: "mfa_disabled",
     userId,
@@ -53,7 +46,6 @@ type DisableUserMfaReport = {
   body: Record<string, unknown>;
 };
 
-// 結果 → 出力の写像を純関数に切り出し、stream / exit code / JSON キーを直接検証可能にする。
 export function toDisableUserMfaReport(
   userId: string,
   result: ForceDisableResult,
@@ -62,7 +54,6 @@ export function toDisableUserMfaReport(
     return { stream: "stderr", exitCode: 1, body: { userId, error: result.error } };
   }
 
-  // 既に無効なら何も変えずに成功で返す。再実行が「失敗」に見えると不要な次の手 (DB 直接操作等) を踏ませる。
   if (!result.changed) {
     return {
       stream: "stdout",

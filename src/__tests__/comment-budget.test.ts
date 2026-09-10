@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { REPO_ROOT } from "./grep-files";
 
 // 2026-09-10 実測。増減した PR は必ずこの値を実測に合わせる。
-const BUDGET = 576;
+const BUDGET = 260;
 const DIRS = ["src", "db", "management", "web/src"];
 const EXEMPT = [
   "src/request-context.ts",
@@ -24,8 +24,9 @@ function isProductionFile(file: string): boolean {
   );
 }
 
-function countBlocks(source: string): number {
+function countBlocks(source: string): { blocks: number; lines: number } {
   let blocks = 0;
+  let lines = 0;
   let inBlock = false;
   let prevIsComment = false;
   for (const raw of source.split("\n")) {
@@ -40,13 +41,14 @@ function countBlocks(source: string): number {
       isComment = true;
       if (!line.includes("*/")) inBlock = true;
     }
+    if (isComment) lines++;
     if (isComment && !prevIsComment) blocks++;
     prevIsComment = isComment;
   }
-  return blocks;
+  return { blocks, lines };
 }
 
-function countCommentBlocks(): [string, number][] {
+function countCommentBlocks(): [string, { blocks: number; lines: number }][] {
   return execFileSync("git", ["ls-files", "-co", "--exclude-standard", ...DIRS], {
     cwd: REPO_ROOT,
     encoding: "utf8",
@@ -60,12 +62,20 @@ function countCommentBlocks(): [string, number][] {
 describe("コメント予算 (design 2026-09-09 Phase 0)", () => {
   test("production のコメントブロック数は BUDGET と一致する", () => {
     const perFile = countCommentBlocks();
-    const total = perFile.reduce((sum, [, n]) => sum + n, 0);
+    const total = perFile.reduce((sum, [, n]) => sum + n.blocks, 0);
     const top = perFile
-      .sort((a, b) => b[1] - a[1])
+      .sort((a, b) => b[1].blocks - a[1].blocks)
       .slice(0, 8)
-      .map(([file, n]) => `${n}\t${file}`)
+      .map(([file, n]) => `${n.blocks}\t${file}`)
       .join("\n");
     expect(total, `blocks=${total} BUDGET=${BUDGET}\n${top}`).toBe(BUDGET);
+  });
+
+  test("コメントブロックは 1 行に収める (src/CLAUDE.md)", () => {
+    const multi = countCommentBlocks()
+      .filter(([, n]) => n.lines !== n.blocks)
+      .map(([file, n]) => `${n.lines - n.blocks}\t${file}`)
+      .join("\n");
+    expect(multi, `2 行以上のブロックを持つ file:\n${multi}`).toBe("");
   });
 });

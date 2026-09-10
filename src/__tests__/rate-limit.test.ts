@@ -33,8 +33,8 @@ describe("rateLimitProgram (Redis 無し)", () => {
     expect(captured.at(-1)?.[1]?.level).toBe("warning");
   });
 
-  test("上限 + 1 は 429 で Retry-After は windowSec (ttl ではない)", async () => {
-    const res = await check(redisReturning({ count: 6, ttl: 7 }));
+  test("上限 + 1 は 429 で Retry-After は windowSec", async () => {
+    const res = await check(redisReturning({ count: 6 }));
     expect(res?.status).toBe(429);
     expect(res?.headers.get("Retry-After")).toBe("60");
     expect(res?.headers.get("content-type")).toBe("application/json");
@@ -42,7 +42,7 @@ describe("rateLimitProgram (Redis 無し)", () => {
   });
 
   test("上限ちょうどは通す", async () => {
-    expect(await check(redisReturning({ count: 5, ttl: 7 }))).toBeUndefined();
+    expect(await check(redisReturning({ count: 5 }))).toBeUndefined();
   });
 });
 

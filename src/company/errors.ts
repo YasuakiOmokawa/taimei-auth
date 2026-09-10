@@ -1,6 +1,5 @@
 import { Data } from "effect";
 
-// company domain の failure (ADR-0017 Decision の failure 項)。wire code / status を自身で持つ。
 export class AlreadyExists extends Data.TaggedError("AlreadyExists") {
   readonly error = "already_exists" as const;
   readonly status = 409 as const;

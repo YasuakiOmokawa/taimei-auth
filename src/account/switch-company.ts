@@ -5,9 +5,7 @@ import { MembershipRepo } from "../membership/ports";
 import { Transaction } from "../transaction";
 import { UserRepo } from "./ports";
 
-// ADR-0012 (Use-case 層): 事業所切替手続。last_used_company_id を target に付け替える。同一 company は
-// 200 短絡で tx / audit なし。fromCompanyId は guard が読んだ同 request の user 行から受け取る (再 SELECT を避ける)。
-// membership の存在は tx 内で再確認する — tx 外 check と更新の間に除名が入る TOCTOU を直列化するため。
+// membership の存在を tx 内で再確認するのは、tx 外 check と更新の間に除名が入る TOCTOU のため。
 export const switchCompany = Effect.fn("account.switchCompany")(function* (params: {
   actorUserId: string;
   fromCompanyId: string | null;

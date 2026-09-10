@@ -4,7 +4,6 @@ import { db } from "../client";
 import { company, type OrgCode } from "../schema";
 import type { DbOrTx } from "../transaction";
 
-// Stripe 流 prefix `cmp_<24chars>` で entity type を log / audit_log 上で即判定可能に (SQL backfill も同 alphabet)。
 export const generateCompanyId = (): string => `cmp_${nanoid(24)}`;
 
 export type CompanyRow = typeof company.$inferSelect;
@@ -44,7 +43,6 @@ export async function insertCompany(
     });
 }
 
-// ACTIVE な company のみ更新対象。
 export async function updateCompany(
   id: string,
   updates: { name: string; orgCode: OrgCode },
@@ -58,7 +56,6 @@ export async function updateCompany(
     .then((rows) => rows.at(0));
 }
 
-// membership / invitation 行は残す (物理削除は本 ADR スコープ外)。ACTIVE のみ削除可能。
 export async function softDeleteCompany(
   id: string,
   txOrDb: DbOrTx = db,

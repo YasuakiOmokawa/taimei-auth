@@ -14,9 +14,6 @@ import {
   user,
 } from "../schema";
 
-// test の seed / cleanup の正本 (db/CLAUDE.md の例外 path。理由は ADR-0017 Decision の依存注入項)。
-// 列は明示して書く: seed は「test が指定した状態を作る」のが役目で、production の不変条件の写しではない。
-
 // seed / cleanup / e2e fixture が共有する識別子の導出。片方だけ変えると cleanup が 0 件になる。
 export const ids = (prefix: string) => ({
   userId: (suffix: string): string => `${prefix}u-${suffix}`,
@@ -98,7 +95,6 @@ export function createSeed(prefix: string) {
     return membershipId;
   };
 
-  // ACCEPTED / REVOKED は production の markInvitation* と同じ列 (accepted_at / revoked_at + used_at) を書く。
   const seedInvitation = async (opts: SeedInvitationOptions): Promise<SeededInvitation> => {
     const invitationId = generateInvitationId();
     const token = opts.token ?? generateInvitationToken();

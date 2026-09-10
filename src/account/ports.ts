@@ -8,8 +8,6 @@ export class UserRepo extends Context.Service<UserRepo, LiftedModule<typeof user
   "taimei/UserRepo",
 ) {}
 
-// revoked_at 記帳だけでは Redis の session 実体が失効しない。revokeAllSessionsForUser の呼び出しは
-// src/account/revoke-sessions.ts に閉じる (gate: src/__tests__/effect-boundary.test.ts)。
 export class SessionRepo extends Context.Service<SessionRepo, LiftedModule<typeof sessionRepo>>()(
   "taimei/SessionRepo",
 ) {}

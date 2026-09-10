@@ -8,8 +8,6 @@ const LoadingRow = () => (
   </div>
 );
 
-// 一覧 fetch ページの 4 分岐 (loading / error / 空 / 本体) の描画骨格。分岐の形や role 付与がずれないよう
-// 1 箇所に置く。取得エラーは操作結果でないため toast に流さず inline (role=alert) に留める (shared/notify.tsx)。
 export const AsyncSection = ({
   loading,
   errorMessage,

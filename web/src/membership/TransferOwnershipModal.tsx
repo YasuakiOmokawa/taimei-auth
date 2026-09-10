@@ -22,7 +22,6 @@ type Props = {
   trigger: React.ReactNode;
 };
 
-// 唯一の OWNER が事業所から抜ける前に、別メンバーへオーナーを委譲する modal。
 export const TransferOwnershipModal = ({
   companyId,
   companyName,

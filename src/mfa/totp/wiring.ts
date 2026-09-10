@@ -15,12 +15,8 @@ import {
   MfaTotpRepo,
 } from "./ports";
 
-// production 結線 (A-11)。gateway 名 (revokeOtherSessions / issueSessionFor) の出現はこのファイルに閉じる。
-// module ロード時 bind の根拠は src/membership/wiring.ts と同じ (db/CLAUDE.md の workerd gotcha)。
-
 export const MfaTotpRepoLive = Layer.succeed(MfaTotpRepo, liftAll(repo));
 
-// 鍵 ring は env から遅延解決する — import 時に throw させない (kill-switch と同じ方針)。
 let cached: MfaKeyRing | undefined;
 
 export const MfaKeyringLive = Layer.succeed(
@@ -40,7 +36,7 @@ export const MfaSessionsLive = Layer.succeed(
   MfaSessions.of({ revokeOthers: revokeOtherSessions, issueSession: issueSessionFor }),
 );
 
-// 有効化 / 無効化の通知の取り違えは「無効化したのに有効化メールが届く」で、利用者からは乗っ取りに見える。
+// 通知の取り違えは「無効化したのに有効化メールが届く」で、利用者からは乗っ取りに見える。
 export const MfaNotifierLive = Layer.succeed(
   MfaNotifier,
   MfaNotifier.of({

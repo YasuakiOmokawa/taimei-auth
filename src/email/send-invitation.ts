@@ -19,7 +19,6 @@ export type InvitationEmailParams = {
   roleLabel: string;
 };
 
-// 招待メール送信。local は console.log fallback (Magic Link / Welcome と同パターン)。
 export const sendInvitationEmail = Effect.fn("email.sendInvitation")(function* (
   params: InvitationEmailParams,
 ) {

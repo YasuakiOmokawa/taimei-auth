@@ -19,8 +19,7 @@ type MfaDisabledEmailProps = {
   supportEmail: string;
 };
 
-// 有効化通知より踏み込んだ警告文にする。無効化には現在の TOTP コードかリカバリーコードが要る
-// ため、本人の操作でないなら第二要素まで渡っており、放置は保護が外れたままを意味する。
+// 無効化には第二要素 (TOTP / リカバリーコード) が要るため、本人操作でないなら保護が外れたままを意味する。
 export default function MfaDisabledEmail({
   appName = "taimei",
   securityUrl = "https://auth.taimei-code.com/account/security",

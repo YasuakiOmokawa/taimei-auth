@@ -25,7 +25,7 @@ describe("spendDisableAttempt", () => {
   });
 
   test("上限超過 (exhausted) も Locked", async () => {
-    expect(await spend(redisReturning({ count: 6, ttl: 60 }))).toBeInstanceOf(Locked);
+    expect(await spend(redisReturning({ count: 6 }))).toBeInstanceOf(Locked);
   });
 
   test("上限ちょうど (accepted) は通す", async () => {
@@ -33,7 +33,7 @@ describe("spendDisableAttempt", () => {
       Effect.runPromise(
         Effect.provide(
           spendDisableAttempt("user-1"),
-          Layer.mergeAll(redisReturning({ count: 5, ttl: 60 }), SentryLive),
+          Layer.mergeAll(redisReturning({ count: 5 }), SentryLive),
         ),
       ),
     ).resolves.toBeUndefined();

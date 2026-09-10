@@ -18,7 +18,6 @@ import { MfaChallenge } from "../mfa/pages/MfaChallenge";
 import { AccountLayout } from "./AccountLayout";
 import { SessionGuard } from "./SessionGuard";
 
-// /auth/* と /account/* を 1 SPA で扱う。詳細: docs/adr/0002-spa-routing-and-static-assets.md
 export const App = () => {
   return (
     <BrowserRouter>
@@ -28,13 +27,12 @@ export const App = () => {
           <Route path="signup" element={<SignUp />} />
           <Route path="signup/company" element={<SignUpCompany />} />
           <Route path="signup/accept-invitation" element={<SignUpAcceptInvitation />} />
-          {/* 一次認証の後に server が 302 で送り込む着地先 (src/auth-plugins/mfa-challenge.ts)。 */}
+          {/* 一次認証の後に server が 302 で送り込む着地先 */}
           <Route path="mfa" element={<MfaChallenge />} />
           <Route path="error" element={<ErrorPage />} />
         </Route>
 
-        {/* CurrentCompanyProvider を SessionGuard の外に置き、guard の認証判定と layout 配下の
-            事業所 state が同じ 1 回の memberships fetch を共有する (二重 fetch 防止)。 */}
+        {/* Provider を guard の外に置き、認証判定と layout が 1 回の memberships fetch を共有する */}
         <Route
           path="/account"
           element={

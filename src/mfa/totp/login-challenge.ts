@@ -10,19 +10,11 @@ import { SentryService } from "../../sentry";
 import { spendAttemptBudget } from "../../attempt-budget";
 import { ChallengeExpired } from "../error-mapping";
 
-// ログインチャレンジの store (Redis 1 key) + 試行枠 + 自前署名 cookie (A-9)。
-// 旧 challenge-store の 3 write 順序・better-call 署名 scheme のハードコピー・完了マーカー形式は
-// 全て不要になった。単回消費は redisStorage.getAndDelete が atomic に確定する (ADR-0016)。
-// Redis 障害は RedisError (boundary、Sentry warning + 500) として E channel に載せる — 試行枠だけは
-// fail-closed のため attempt-budget が畳む。
-
 export const LOGIN_CHALLENGE_COOKIE = "mfa_login_challenge";
 
 const CHALLENGE_TTL_SECONDS = 600;
 const MAX_ATTEMPTS = 5;
 
-// export しているのは、テストが期限切れ・掃除の操作対象を production と同じキーに固定するため
-// (disable-attempt-budget.ts の disableAttemptsKey と同じ規律)。
 export const challengeKey = (challengeId: string): string => `mfa:login-challenge:${challengeId}`;
 export const attemptsKey = (challengeId: string): string =>
   `mfa:login-challenge-attempts:${challengeId}`;
@@ -33,10 +25,7 @@ export type ChallengeMethod = (typeof CHALLENGE_METHODS)[number];
 export type LoginChallenge = { userId: string; redirectUrl: string; method: ChallengeMethod };
 export type OpenedLoginChallenge = LoginChallenge & { challengeId: string };
 
-// cookie 署名鍵は AUTH_SECRET を共有する — cookie 署名は AUTH_SECRET の本来用途と同クラスで、
-// 差し替え時の影響は保留中チャレンジ (最大 600 秒) の失効だけ (専用鍵は不採用: ADR-0016)。
-// env 直読みでなく better-auth の解決 (dev の default fallback を含む) に合わせる — 旧構成と同じ
-// 供給網に乗せ、AUTH_SECRET 未設定の dev/CI で session 側と鍵がずれないようにする。
+// 鍵は better-auth の解決を通す — env 直読みだと dev/CI の default fallback で session 側とずれる。
 const signChallengeId = Effect.fn("mfa.signChallengeId")(function* (challengeId: string) {
   const secret = yield* tryAuthApi(async () => (await auth.$context).secret);
   return yield* Effect.promise(() => makeSignature(challengeId, secret));
@@ -58,7 +47,6 @@ export type LoginChallengeCookie = {
   attributes: ReturnType<typeof challengeCookieAttributes>;
 };
 
-// Redis write + cookie 素材。plugin は ctx.setCookie(name, value, attributes) で書く。
 export const openLoginChallenge = Effect.fn("mfa.openLoginChallenge")(function* (
   challenge: LoginChallenge,
 ) {
@@ -74,14 +62,13 @@ export const openLoginChallenge = Effect.fn("mfa.openLoginChallenge")(function* 
   } satisfies LoginChallengeCookie;
 });
 
-// GET /api/mfa/challenge が返すのは boolean 1 つに限る (userId 等を未認証応答へ出さない)。
+// 未認証応答へ出すのは boolean 1 つに限る (userId 等を出さない)。
 export const readLoginChallengeState = Effect.fn("mfa.readLoginChallengeState")(function* (
   headers: Headers,
 ) {
   return { pending: (yield* peekLoginChallenge(headers)) !== null };
 });
 
-// cookie 読み → HMAC 検証 → Redis get → JSON parse + 形の検証。どの段階の失敗も null (漏らさない)。
 export const peekLoginChallenge = Effect.fn("mfa.peekLoginChallenge")(function* (headers: Headers) {
   const challengeId = yield* resolveChallengeId(headers);
   if (!challengeId) return null;
@@ -90,8 +77,6 @@ export const peekLoginChallenge = Effect.fn("mfa.peekLoginChallenge")(function* 
   return challenge ? ({ ...challenge, challengeId } satisfies OpenedLoginChallenge) : null;
 });
 
-// getAndDelete が単回消費を atomic に確定する (並行敗者と期限切れは ChallengeExpired)。
-// 値の形は発行側しか書かないため存在チェックで足りる (形の検証は peek の担当)。
 export const consumeLoginChallenge = Effect.fn("mfa.consumeLoginChallenge")(function* (
   challengeId: string,
 ) {
@@ -100,14 +85,14 @@ export const consumeLoginChallenge = Effect.fn("mfa.consumeLoginChallenge")(func
   return clearCookieHeaders();
 });
 
-// 失効指示 cookie は返さない — 呼び出し側は応答を invalid_code のままにする契約 (§9)。
+// 失効指示 cookie は返さない — 呼び出し側は応答を invalid_code のままにする契約。
 export const destroyLoginChallenge = Effect.fn("mfa.destroyLoginChallenge")(function* (
   challengeId: string,
 ) {
   yield* Redis.use((r) => r.delete(challengeKey(challengeId)));
 });
 
-// fail-closed (unavailable → Locked) は complete-login-challenge.ts が verdict を写す: CONTEXT.md「試行枠」。上限到達は Sentry へ (ロック急増の唯一の検知信号)
+// 上限到達を Sentry へ出すのがロック急増の唯一の検知信号。
 export const spendLoginChallengeAttempt = Effect.fn("mfa.spendLoginChallengeAttempt")(function* (
   challengeId: string,
 ) {
@@ -128,7 +113,6 @@ export const spendLoginChallengeAttempt = Effect.fn("mfa.spendLoginChallengeAtte
   return verdict;
 });
 
-// 形の逸脱は例外でなく null に倒し、呼び出し側の「チャレンジ無し」と同じ扱いにする。
 const challengeSchema = z.object({
   userId: z.string().min(1),
   redirectUrl: z.string(),
@@ -162,7 +146,5 @@ const resolveChallengeId = Effect.fn("mfa.resolveChallengeId")(function* (header
   if (separator < 1) return null;
   const challengeId = raw.slice(0, separator);
   const signature = raw.slice(separator + 1);
-  // 署名 scheme の知識を verify 側に複製しない — 期待値を同じ makeSignature で再計算して
-  // 定数時間比較する (どちらも better-auth の公開 export)。
   return constantTimeEqual(signature, yield* signChallengeId(challengeId)) ? challengeId : null;
 });

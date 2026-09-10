@@ -4,11 +4,9 @@ import { db } from "../client";
 import { company, membership, type Role, user } from "../schema";
 import type { DbOrTx, DbTx } from "../transaction";
 
-// Stripe 流 prefix `mbr_<24chars>` で entity type を log / audit_log 上で即判定可能に。
 export const generateMembershipId = (): string => `mbr_${nanoid(24)}`;
 
-// signup の CreateCompany で同 user の 2 tab 同時 submit を直列化する per-user 排他ロック。user_id 単独の
-// unique 制約は N:M と衝突して使えないため、advisory lock + tx 内 re-check で TOCTOU を解消する。
+// user_id 単独の unique 制約は N:M と衝突するため advisory lock + tx 内 re-check で TOCTOU を防ぐ。
 export async function lockUserForCompanyCreation(tx: DbTx, userId: string): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${userId}))`);
 }
@@ -51,7 +49,6 @@ export async function findMembershipsByUserId(
     .where(eq(membership.userId, userId));
 }
 
-// ADR-0010 D2: 「ACTIVE company の membership 行が存在する」を orphan 判定の唯一の基準にする。
 export async function countActiveMembershipsByUserId(
   userId: string,
   txOrDb: DbOrTx = db,
@@ -64,7 +61,6 @@ export async function countActiveMembershipsByUserId(
   return rows.at(0)?.count ?? 0;
 }
 
-// ADR-0010 D1: 削除行を返すので呼び出し側が元メンバーごとに orphan 判定を回せる。
 export async function removeMembershipsOfCompany(
   companyId: string,
   txOrDb: DbOrTx = db,
@@ -72,7 +68,6 @@ export async function removeMembershipsOfCompany(
   return txOrDb.delete(membership).where(eq(membership.companyId, companyId)).returning();
 }
 
-// ADR-0010 PR-4 (backfill): D1 導入前の soft delete で残った ghost membership の掃除対象を引く。
 export async function findDeletedCompanyIdsWithMemberships(txOrDb: DbOrTx = db): Promise<string[]> {
   const rows = await txOrDb
     .selectDistinct({ companyId: membership.companyId })
@@ -122,8 +117,7 @@ export async function findMembership(
     .then((rows) => rows.at(0));
 }
 
-// FOR SHARE で 1 行掴んだまま role を返し、accept tx の「招待者は今 OWNER か」再検証を並行 UPDATE と
-// 直列化する。default を db にしないのは autocommit だと lock が statement 終了で解放され TOCTOU が復活するため。
+// tx を必須にするのは autocommit だと FOR SHARE lock が statement 終了で解放され TOCTOU が復活するため。
 export async function lockMembershipForShare(
   tx: DbTx,
   userId: string,
@@ -196,8 +190,6 @@ export async function countOwnerMemberships(tx: DbTx, companyId: string): Promis
 
 export type BlockingCompany = { companyId: string; companyName: string };
 
-// DeleteUser pre-check (Q24): user が唯一の OWNER である ACTIVE company を返す。残る限り退会できない
-// (OWNER ゼロの課金責任者不在 company を防ぐ)。解消は TransferOwnership か DeleteCompany。
 export async function findCompaniesBlockingUserDeletion(
   userId: string,
   txOrDb: DbOrTx = db,

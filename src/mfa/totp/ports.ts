@@ -13,21 +13,18 @@ export class MfaTotpRepo extends Context.Service<MfaTotpRepo, LiftedModule<typeo
   "taimei/MfaTotpRepo",
 ) {}
 
-// 鍵 ring は env から遅延解決する — import 時に throw させない (kill-switch と同じ方針)。
-// 解決失敗 (env 不正) は業務失敗ではないため E channel に載せず defect のままにする。
+// 鍵 ring は env から遅延解決する — import 時に throw させない。
 export class MfaKeyring extends Context.Service<
   MfaKeyring,
   { readonly ring: Effect.Effect<MfaKeyRing> }
 >()("taimei/MfaKeyring") {}
 
-// otpauth URI に載る発行者名 (認証アプリの表示名)。
 export class MfaIssuer extends Context.Service<
   MfaIssuer,
   { readonly appName: Effect.Effect<string> }
 >()("taimei/MfaIssuer") {}
 
-// port 名を revokeOthers / issueSession にするのは gateway 名 (revokeOtherSessions / issueSessionFor) の
-// 出現を wiring に閉じるため。
+// port 名を gateway 名と変えるのは、gateway 名の出現を wiring に閉じるため。
 export class MfaSessions extends Context.Service<
   MfaSessions,
   {
@@ -38,9 +35,6 @@ export class MfaSessions extends Context.Service<
   }
 >()("taimei/MfaSessions") {}
 
-// 通知は失敗しない契約 (notification-adapter が catch を内蔵する)。
-// seam にする理由: 「失敗しない」を E channel = never として interface に固定し、use-case が adapter の catch を
-// 読まずに済むようにするため (test は記録型 Layer で通知先を観測する)。
 export class MfaNotifier extends Context.Service<
   MfaNotifier,
   {

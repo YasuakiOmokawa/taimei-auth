@@ -1,7 +1,3 @@
-// SPA → auth ホストの MFA API client。wire (@core/mfa/wire-contracts が正本) を view 形へ変換する唯一の場所で、
-// 形の崩れた 2xx は "unknown" へ縮退する。汎用 request と分ける理由: web/src/CLAUDE.md「HTTPとerror」。
-// 設計詳細: docs/adr/0013-mfa-totp-challenge.md
-
 import {
   MFA_WIRE_ERROR_CODES,
   type MfaActivateRequest,
@@ -19,21 +15,18 @@ export type { MfaCodeKind } from "@core/mfa/wire-contracts";
 
 export type MfaStatus = {
   enabled: boolean;
-  // 旧 wire 互換 field。server 側は常に enabled と同値を返す (「中断した無効化」は
-  // 3 状態化で構造的に不在 — ADR-0016 §3.1)。
+  // 旧 wire 互換 field。server は常に enabled と同値を返す (ADR-0016)。
   inEffect: boolean;
   recoveryCodesRemaining: number;
 };
 
-// recoveryCodes は登録途中のenroll再実行で同じ値を返す。有効化後は残数しか取得できない。
-// 受け取った画面より先へ持ち出さないこと。
+// recoveryCodes を本人に渡せるのはこの応答だけ (有効化後は残数しか取れない)。画面より先へ持ち出さない。
 export type MfaEnrollment = {
   enrollmentId: string;
   totpUri: string;
   recoveryCodes: string[];
 };
 
-// wire と view が同形の endpoint は wire 型をそのまま view にする。
 export type MfaChallengeState = MfaChallengeStateResponse;
 
 export type MfaChallengePassed = { redirectUrl: string };
@@ -42,8 +35,7 @@ export type MfaErrorCode = MfaWireErrorCode | "rate_limited" | "unknown";
 
 const WIRE_ERROR_CODES: ReadonlySet<string> = new Set(MFA_WIRE_ERROR_CODES);
 
-// ロックアウト (`locked`) と rate limit は同じ 429 で返る。status だけで丸めると「数十秒待てば通る」失敗を
-// 15 分待たせるため、判別は body の error コードで行い、載っていない 429 を rate_limited に倒す。
+// ロックアウトと rate limit は同じ 429 で返るため、判別は status でなく body の error コードで行う。
 const resolveMfaErrorCode = (status: number, wireError: string | undefined): MfaErrorCode => {
   if (wireError !== undefined && WIRE_ERROR_CODES.has(wireError)) return wireError as MfaErrorCode;
   if (status === 429) return "rate_limited";
@@ -72,7 +64,6 @@ function readWireError(body: unknown): string | undefined {
 async function requestJson(url: string, init?: RequestInit): Promise<unknown> {
   // credentials: cookie 送信に加えローテート後セッションの Set-Cookie 受領にも要る (外すと操作直後にログアウト)。
   const res = await fetch(url, { credentials: "include", ...init });
-  // 空 body (activate / disable の 200) と非 JSON body (proxy が返す 5xx) を同じ経路で通す。
   const body: unknown = await res.json().catch(() => undefined);
   if (!res.ok) throw new MfaApiError(resolveMfaErrorCode(res.status, readWireError(body)));
   return body;
@@ -94,8 +85,7 @@ const requireRecord = (body: unknown): Record<string, unknown> => {
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === "string");
 
-// 各 parser の satisfies が wire 型との結び付き: 正本に必須 field が増えるとここが型エラーになり、
-// 検査と変換の追加を強制する。追加 field は無視する (server の additive 変更を壊さない)。
+// satisfies は wire 正本に必須 field が増えた時にここを型エラーにする (追加 field は無視して additive 変更を通す)。
 const readMfaStatus = (body: unknown): MfaStatus => {
   const wire = requireRecord(body);
   if (
@@ -117,8 +107,7 @@ const readMfaStatus = (body: unknown): MfaStatus => {
   };
 };
 
-// 空値も不正に倒す: 空 enrollment_id は照合 400 と表示 cache の袋小路、空 totp_uri は QR も
-// secret も無い scan 画面、空 recovery_codes はリカバリー手段ゼロの有効化になる。
+// 空値も不正に倒す: 空 totp_uri は QR も secret も無い scan 画面、空 recovery_codes は手段ゼロの有効化になる。
 const readMfaEnrollment = (body: unknown): MfaEnrollment => {
   const wire = requireRecord(body);
   if (
@@ -165,7 +154,6 @@ export const getMfaStatus = (): Promise<MfaStatus> =>
 export const enrollMfa = (): Promise<MfaEnrollment> =>
   postJson("/api/account/mfa/enroll").then(readMfaEnrollment);
 
-// 成功時の body は消費しない (view に載せる data が無いため、形の検査もしない)。
 export const activateMfa = (input: { code: string; enrollmentId: string }): Promise<void> =>
   postJson("/api/account/mfa/activate", {
     code: input.code,

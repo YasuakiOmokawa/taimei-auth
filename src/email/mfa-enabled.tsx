@@ -19,8 +19,7 @@ type MfaEnabledEmailProps = {
   supportEmail: string;
 };
 
-// TOTP secret とリカバリーコードは本文に載せないこと。ログイン手段が Magic Link = メールである
-// 以上、受信箱に第二要素を置くと 1 経路の突破で両方が揃い、MFA の前提そのものが消える。
+// TOTP secret とリカバリーコードは本文に載せない (受信箱に第二要素を置くと MFA の前提が消える)。
 export default function MfaEnabledEmail({
   appName = "taimei",
   securityUrl = "https://auth.taimei-code.com/account/security",

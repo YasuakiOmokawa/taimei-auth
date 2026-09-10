@@ -33,14 +33,14 @@ describe("spendAttemptBudget", () => {
   });
 
   test("AC-019 count 0 は契約逸脱として unavailable に倒す (fail-closed の第 2 線)", async () => {
-    expect(await spend(redisReturning({ count: 0, ttl: 60 }))).toBe("unavailable");
+    expect(await spend(redisReturning({ count: 0 }))).toBe("unavailable");
   });
 
   test("AC-020 count が上限ちょうどなら accepted", async () => {
-    expect(await spend(redisReturning({ count: 5, ttl: 60 }), 5)).toBe("accepted");
+    expect(await spend(redisReturning({ count: 5 }), 5)).toBe("accepted");
   });
 
   test("AC-021 count が上限を 1 超えたら exhausted", async () => {
-    expect(await spend(redisReturning({ count: 6, ttl: 60 }), 5)).toBe("exhausted");
+    expect(await spend(redisReturning({ count: 6 }), 5)).toBe("exhausted");
   });
 });

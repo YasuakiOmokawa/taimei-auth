@@ -2,7 +2,6 @@ import { z } from "zod";
 import { TAIMEI_SERVICES, type ServiceName } from "./services";
 import { validateRedirectUrl } from "./url-allowlist";
 
-// 検証ポリシー: docs/adr/0003-redirect-url-allowlist-policy.md
 const serviceNameSchema = z.enum(Object.keys(TAIMEI_SERVICES) as [ServiceName, ...ServiceName[]]);
 
 // refine 前の object を別 export するのは、SPA が「転送してよい query キー集合」を shape から導出するため。
@@ -10,7 +9,6 @@ export const signInParamsObjectSchema = z.object({
   service_name: serviceNameSchema,
   redirect_url: z.string().min(1).max(2048),
   sign_up_url: z.string().min(1).max(2048).optional(),
-  // 招待リンクからの signup 経路で運ばれるだけで、受諾は /api/account/accept-invitation が担う。
   invitation_token: z.string().min(1).max(256).optional(),
 });
 

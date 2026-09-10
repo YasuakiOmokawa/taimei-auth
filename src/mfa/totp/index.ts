@@ -1,4 +1,3 @@
-// totp モジュールの façade。handler はここだけを import する (containment が固定)。
 export type { MfaTotpActor } from "./contracts";
 export { activate } from "./activate-mfa";
 export { completeLoginChallenge } from "./complete-login-challenge";

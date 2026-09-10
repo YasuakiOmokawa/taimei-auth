@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 
-// 3 経路 (不可視リンク / hidden input / favicon) で canary token を埋込む。詳細: docs/adr/0005-canary-token-embedding.md
 const tokenId = import.meta.env.VITE_CANARY_TOKEN_ID as string | undefined;
 
 export const CanaryTokens = () => {

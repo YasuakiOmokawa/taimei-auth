@@ -4,7 +4,6 @@ import { Hono } from "hono";
 import { SentryService } from "../sentry";
 import { runRoute } from "./run-route";
 
-// 共通画面 SPA 3 経路埋込からの canary token 受信。詳細: docs/adr/0005-canary-token-embedding.md
 export const canaryToken = new Hono();
 
 const FAVICON_EMBED_SUFFIX = ".ico";

@@ -5,8 +5,6 @@ import { Transaction } from "../transaction";
 import { NotFoundOrNotPending } from "./errors";
 import { InvitationRepo } from "./ports";
 
-// ADR-0012 (Use-case 層): 招待取消手続。PENDING 行のみ REVOKED に落として audit を残す。
-// markRevoked が 0 件更新なら NotFoundOrNotPending を E に載せ (tx ごと rollback)、audit は発火しない。
 export const revokeInvitation = Effect.fn("invitation.revoke")(function* (params: {
   actorUserId: string;
   companyId: string;

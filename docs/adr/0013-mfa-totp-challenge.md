@@ -384,7 +384,7 @@ MFA チャレンジを消費し、新 session を発行して response の `Set-
   経路でしか動かず、セッションあり経路の `disable` には継承されない。session cookie を盗んだ攻撃者に
   よる 6 桁の総当たりを止めるのは `src/mfa/disable-attempt-budget.ts` のアカウント単位カウンタ
   (5 回 / 15 分、TTL は試行のたびに引き直すスライディング窓) だけである。計数は
-  `incrementRateWindow` の MULTI (INCR + EXPIRE + TTL を 1 往復) に載せて atomic にし、
+  `incrementRateWindow` の MULTI (INCR + EXPIRE を 1 往復) に載せて atomic にし、
   並行リクエストで加算を取りこぼさない。軸をセッションでなくアカウントに取るのは、cookie を
   盗んだ攻撃者がセッションを取り直すたびに枠を得るのを防ぐため。汎用の `createRateLimitMiddleware` は
   availability 優先で Redis 障害時に fail-open するが、**このカウンタは数えられない時に必ず拒否する**

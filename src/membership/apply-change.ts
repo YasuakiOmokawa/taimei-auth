@@ -5,8 +5,7 @@ import type { DbError } from "../errors";
 import { LastOwner } from "./errors";
 import { MembershipRepo } from "./ports";
 
-// OWNER 行を FOR UPDATE で取ってから write し、事後 count で OWNER≥1 を守る。「OWNER が減るか」を tx 外の role 読みで
-// 判定すると並行 transfer と重なった時に lock も count も無しで OWNER 0 になりうるため、常に lock する。
+// tx 外の role 読みで「OWNER が減るか」を判定すると並行 transfer で OWNER 0 になるため常に lock する。
 const keepingAnOwner = Effect.fn("membership.keepingAnOwner")(function* <A>(
   tx: DbTx,
   companyId: string,

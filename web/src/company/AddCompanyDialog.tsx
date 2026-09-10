@@ -18,13 +18,11 @@ import { OrgCodeField } from "./OrgCodeField";
 import { addCompany, type OrgCode } from "./company-api";
 
 type Props = {
-  // 作成成功後に呼ぶ (server が last_used を更新済みなので refresh だけで「現在の事業所」が切り替わる)。
+  // server が作成時に last_used を更新済みなので refresh だけで現在の事業所が切り替わる
   onCreated: () => Promise<unknown>;
   trigger: ReactNode;
 };
 
-// 既存 user が新しい事業所を追加するダイアログ。入力は SignUpCompany と同じ 2 つで、既定は法人
-// (追加作成は法人が主のため signup の個人事業主とは別既定)。作成後は新事業所が現在の事業所になる。
 export const AddCompanyDialog = ({ onCreated, trigger }: Props) => {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
@@ -38,8 +36,7 @@ export const AddCompanyDialog = ({ onCreated, trigger }: Props) => {
     setErrorMessage(null);
   };
 
-  // 送信中は閉じない。server 側に作成の dedupe が無いため submitting 解除は chain 全体の finally に置く
-  // (成功枝に移すと閉じてから再取得が終わるまでの間に再送信でき、事業所が 2 つできる)
+  // server に作成の dedupe が無く、成功枝で submitting を解除すると再送信で事業所が 2 つできる
   const handleOpenChange = (next: boolean) => {
     if (submitting) return;
     if (!next) reset();
@@ -60,7 +57,6 @@ export const AddCompanyDialog = ({ onCreated, trigger }: Props) => {
           staleShort: "事業所を作成しました",
         });
       })
-      // dialog 内 inline は作成 POST 自体の失敗だけを受け持つ (再取得の失敗は上で通知済み)
       .catch(() => setErrorMessage("事業所の作成に失敗しました。"))
       .finally(() => setSubmitting(false));
   };

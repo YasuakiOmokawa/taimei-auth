@@ -1,6 +1,5 @@
 import { Loader2 } from "lucide-react";
 
-// 全画面ローディング。role="status" + sr-only でスクリーンリーダーにも読み込み中を伝える。
 export const FullScreenLoader = () => (
   <div className="flex min-h-svh items-center justify-center" role="status" aria-live="polite">
     <Loader2 className="size-6 animate-spin text-muted-foreground" aria-hidden="true" />

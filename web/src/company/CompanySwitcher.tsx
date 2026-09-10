@@ -8,7 +8,6 @@ import { setCurrentCompany, useCurrentCompany } from "../account/current-company
 import { notifyAfterRefresh, notifyError } from "../shared/notify";
 import { NativeSelect } from "../shared/ui/native-select";
 
-// sidebar 上部の事業所ピッカー。複数所属時のみ native select で切替 (DropdownMenu 依存を避ける)。
 export const CompanySwitcher = () => {
   const { memberships, currentMembership, refresh } = useCurrentCompany();
   const [switching, setSwitching] = useState(false);

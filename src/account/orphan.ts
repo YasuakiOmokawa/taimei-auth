@@ -3,7 +3,6 @@ import type { DbTx } from "@/db/transaction";
 import { MembershipRepo } from "../membership/ports";
 import { deleteAccount } from "./delete-account";
 
-// membership が減る経路は直後にこれを通す (ADR-0010 D2)。削除手順は delete-account.ts。
 export const deleteAccountIfOrphaned = Effect.fn("account.deleteAccountIfOrphaned")(function* (
   userId: string,
   tx: DbTx,

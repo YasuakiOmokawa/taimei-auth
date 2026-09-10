@@ -10,7 +10,6 @@ export type MfaChallengeFlowState<ErrorCode extends string> =
   | { phase: "expired" }
   | { phase: "redirecting"; redirectUrl: string };
 
-// port の返す検証結果と flow の解決済み検証結果は同じ union を共有する (改名専用の別型を作らない)。
 export type MfaChallengeVerification<ErrorCode extends string> =
   | { kind: "passed"; redirectUrl: string }
   | { kind: "expired" }
@@ -18,8 +17,7 @@ export type MfaChallengeVerification<ErrorCode extends string> =
 
 export type MfaChallengePort<Input, ErrorCode extends string> = {
   observe(signal: AbortSignal): Promise<MfaChallengeObservation>;
-  // expired の終端判断は resolveMfaChallengeVerification が所有する。Exclude で port が返せる形から
-  // 外し、「port が expired を宣言して flow の判断を迂回する」実装を型で塞ぐ。
+  // expired の終端判断は resolveMfaChallengeVerification が持つため、port からは Exclude で外す。
   verify(input: Input): Promise<Exclude<MfaChallengeVerification<ErrorCode>, { kind: "expired" }>>;
 };
 
@@ -77,7 +75,6 @@ export function reduceMfaChallengeFlow<ErrorCode extends string>(
       case "rejected":
         return { phase: "ready", errorCode: event.verification.errorCode };
       default:
-        // fall-through は verifying に固まり操作不能になる。variant 追加漏れは typecheck で検出する。
         return event.verification satisfies never;
     }
   }

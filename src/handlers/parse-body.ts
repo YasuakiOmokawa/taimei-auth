@@ -6,16 +6,13 @@ import type { ParseBody } from "../membership/guard";
 import { InvalidArgument } from "../membership/guard/errors";
 import type { MfaCodeKind } from "../mfa/wire-contracts";
 
-// role を body で受ける 2 route が同じ値集合を受理するための共有 schema (片方だけ受理する非対称を防ぐ)。
-// 値集合の SSOT は db/schema.ts の Role (satisfies が Role に無い値の混入を型エラーで検出する)。
 export const roleBodySchema = z.enum([
   "OWNER",
   "ADMIN",
   "MEMBER",
 ] as const satisfies readonly Role[]);
 
-// 桁数を縛らないのは TOTP とリカバリーコードで書式が異なり、書式判定を Transport が持つと誤入力が
-// invalid_argument になり SPA の invalid_code 分岐から外れるため。string 固定は先頭 0 の保持。
+// 桁数を縛らないのは、書式判定を Transport が持つと誤入力が invalid_argument になり SPA の分岐から外れるため。
 export const mfaCodeSchema = z.string().min(1).max(64);
 
 export const mfaCodeKindSchema = z.enum([
