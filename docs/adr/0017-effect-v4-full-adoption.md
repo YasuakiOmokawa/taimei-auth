@@ -69,6 +69,20 @@ Stage は層単位で進める。Stage の途中では main に 2 様式が共�
 
 依存: `effect` は `4.0.0-rc.112` に exact pin し、stable (4.0.0) か security advisory まで動かさない。Dependabot は `effect` の `< 4.0.0` (RC) だけを ignore する。RC 追従 PR を出すと毎週 `minimumReleaseAge` に block されて CI が落ちる一方、stable と security update は出したいため。security advisory は ADR-0009 §H の手順に従う。`@effect/platform-bun` / `@effect/vitest` / `@effect/opentelemetry` は追加しない (RC package を増やさず、`management/` CLI は `getRuntime().runPromise` で走らせる)。`effect/unstable/*` は biome で全域 import 禁止、`db/` と `web/src` からの `effect` import は `src/__tests__/effect-boundary.test.ts` と biome で禁止する。
 
+## 実装の機構 (2026-09-10 追記)
+
+Decision の各項が「何を選んだか」を言い、この節は「その形でないと壊れる理由」を module ごとに置く。書き方の規則そのものは `src/CLAUDE.md`「Effect様式」が正本で、ここには再掲しない。
+
+- 境界 producer (`src/errors.ts`): `Effect.tryPromise` は thunk の同期 throw も E に載せるため、旧 guard の「`Promise.resolve().then()` で包む」fail-open 回避は要らない。`liftAll` は型では Promise を返す関数だけを写し、実行時は全関数を包む (戻り値は実行前に判定できず、型に無い key には到達できない)。`Effect.timeout` の `TimeoutError` は各境界の error (`RedisError` / `EmailError`) に畳み、呼び手は境界 1 種だけを catch する
+- Transaction (`src/transaction.ts`): drizzle は callback が throw した時だけ rollback するため、program の Exit が失敗なら `RollbackSignal` を throw して rollback を引き、callback の外で元の Exit に復元する。それ以外の throw (drizzle / pg) は `DbError` (別 root fiber の帰結は Consequences)
+- Background (`src/background.ts`): `Effect.forkDetach` は scope に付かない fiber を作り (親の interrupt で止まらない) が context は継承するため、program の requirement (R) はそのまま呼び手に載る。detach した fiber の完了 Promise を ALS carrier (`runBackground`) に登録し、`Fiber.await` は失敗しない (Exit を返す)。effect 自身の失敗は渡す前に呼び手が catch する (規則は `src/CLAUDE.md`「Effect様式」)
+- hook (`src/auth-plugins/mfa-challenge.ts`。`sign-in-observer.ts` は E channel を `Effect.catch` で握るだけで以下の 2 つを持たない): 本体は E = never の program で倒し方を全て program 内で決める (境界は Decision の境界表 3 行目)。観測自体の失敗 (Sentry backend の throw = defect) で hook を落とさないために `Effect.ignoreCause` を使う (`Effect.ignore` は E channel だけを握る)。module-level の最終通知時刻は `Ref.modify` で読みと更新を 1 手にする。hook 側の try/catch は runtime の動的 import (Did not adopt の TDZ 項) が失敗した時の最後の砦で、Effect の外にしか置けない。kill switch は runtime に依存させない (止めている間は一次認証だけで session が立つ)
+- adapter (`src/handlers/wire-error.ts` の `settleCause` / `captureThrown`): catalog 外の failure を実行時にも形で見るのは `status: undefined` → 200 の fail-open を防ぐため (Sentry level と `console.error` は Decision の Sentry 項)。`captureThrown` が観測自体の失敗を握るのは、better-call が `onError` の throw を `auth.handler` の reject にし、better-auth が組んだ 500 応答と Set-Cookie 合流を失わせるため (元の error は send が先に `console.error` する)
+- `ParseBody` (`src/handlers/parse-body.ts` / `src/membership/guard/core.ts`): Effect 値は `yield*` まで実行されないため、guard が 401 / 403 を先に判定した request では body を読まない。zod を残す理由は Decision の zod 項
+- Redis retry (`src/redis-service.ts`): retry は冪等な呼び出しに限る (対象と値は Decision の非同期項)。INCR 系・`getAndDelete` は再送が二重計上 / 二重消費になり、`/health` の ping は失敗を degraded に畳むだけで応答時間を伸ばしたくないため、どちらも 1 回 (`attemptOnce`)
+- CLI (`management/*.ts`): pg pool が開いたままだと process が終わらないため明示 `process.exit` する (runtime の共有は Decision の依存項)
+- 非慣用に見えるが直さない形: `src/rpc/run-rpc.ts` の `STATUS_TO_CODE` 外部写像表 (Connect code は Transport 固有語彙で、class に生やすと failure class 20 個に複製される)、`attempt-budget.ts` の 3 値 verdict (`unavailable` と `exhausted` の区別が fail-closed / fail-open を同じ kernel から出す条件、CONTEXT.md「試行枠」)、`RollbackSignal` の sentinel throw、`mfa/totp/wiring.ts` の `let cached` (`Effect.cached` は `Layer.effect` を要し、`effect-boundary.test.ts` が `Layer.succeed` に限る)、`parseChallenge` の try/catch (Effect の外の純関数で「どの段階の失敗も null」を 1 箇所に保つ)、hook / `captureThrown` の try/catch (上記)
+
 ## Stable 移行手順
 
 rc.112 → 4.0.0 を 1 PR で上げ、全テスト + typecheck で API 差を検出する。同じ PR で Dependabot の ignore を外す。RC 固有の API 差 (`catchAll` → `Effect.catch`、`Effect.merge` 無し、`Schema.Enums` でなく `Schema.Enum` 等) は stable 化までは実装時に `node_modules/effect/src` で確認する。

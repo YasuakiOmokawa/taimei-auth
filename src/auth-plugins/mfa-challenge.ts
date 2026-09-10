@@ -16,8 +16,6 @@ import {
 
 // 一次認証成功後の after-hook にチャレンジ強制を差し込む自前プラグイン (設計: ADR-0016)。
 // チャレンジ要否は自前 mfa_totp 行から導出する (+1 SELECT。secret 列に触れない射影 — D5)。
-// 本体は Effect program (enforceChallenge)、hook は入力を狭い型に写して runPromise し、redirect の throw だけを
-// 担う (ADR-0017 境界表の hook 行。同じ形: sign-in-observer.ts)。
 
 const MFA_CHALLENGE_PAGE = "/auth/mfa";
 const SENTRY_TAGS = { component: "mfa-challenge" } as const;
@@ -26,7 +24,6 @@ const SENTRY_TAGS = { component: "mfa-challenge" } as const;
 // 6 時間はオンコール交代を必ず 1 回またぐ粒度。
 export const KILL_SWITCH_REPORT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-// 最終通知時刻は isolate / process に 1 つ (module-level)。読みと更新を Ref.modify の 1 手にする。
 const killSwitchReportedAt = Ref.makeUnsafe(0);
 
 // hook が program に渡す面。ctx 由来の副作用 (cookie 書き込み・session 破棄) は callback で受け取る。
@@ -54,8 +51,7 @@ class UnmappedPrimaryAuthRoute extends Data.TaggedError("UnmappedPrimaryAuthRout
   }
 }
 
-// 観測自体の失敗 (Sentry backend の throw = defect) で hook を落とさない。ignoreCause は defect も握る
-// (Effect.ignore は E channel だけ)。log: true は Info になるので Error を明示する (旧 console.error 相当)。
+// log: true は Info になるので Error を明示する (旧 console.error 相当)。
 const bestEffort = Effect.ignoreCause({ log: "Error" });
 
 const reportFailure = (cause: Cause.Cause<unknown>) =>
@@ -89,10 +85,10 @@ const handOffToChallenge = Effect.fn("auth.handOffToMfaChallenge")(function* (
   });
   input.setCookie(cookie);
   input.dropIssuedSession();
-  yield* (yield* AuthApi).deleteSession(input.sessionToken);
+  yield* AuthApi.use((authApi) => authApi.deleteSession(input.sessionToken));
 });
 
-// E = never: 倒し方は全てここで決める (fail-closed の正本: ADR-0013 §1 → 0016 が引き継ぐ)。
+// E = never: 倒し方は全てここで決める (fail-closed の正本: ADR-0016)
 export const enforceChallenge = Effect.fn("auth.enforceMfaChallenge")(function* (
   input: IssuedSession,
 ) {
@@ -132,9 +128,7 @@ const enforceChallengeAfterPrimaryAuth = createAuthMiddleware(async (ctx) => {
     },
   };
 
-  // runtime は関数内で動的 import する (auth.ts から静的に辿れる module の規則: src/CLAUDE.md「Effect様式」)。
-  // program は E = never なので catch に来るのは runtime の import / 構築失敗 (bug) だけ。それでも fail-closed。
-  // ただし kill switch は runtime に依存させない (止めている間は一次認証だけで session が立つ: CONTEXT.md)。
+  // runtime の動的 import と try/catch の位置づけは ADR-0017「実装の機構」
   let decision: "pass" | "challenge";
   try {
     const { getRuntime } = await import("../runtime");

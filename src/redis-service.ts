@@ -1,14 +1,7 @@
 import { Context, Effect, Layer, Schedule } from "effect";
 import { RedisError, timeoutAsBoundary, tryRedis } from "./errors";
 import { incrementRateWindow, pingRedis, type RateWindowResult, redisStorage } from "./redis";
-// Effect service 版 (ADR-0017 Stage 4、Decision の非同期項)。自前の呼び出し (rate-limit / attempt-budget / keepalive /
-// health) はこの service を経由する。better-auth の secondaryStorage だけは Promise interface (redisStorage) を
-// 直接受ける (境界)。live は initRedis() 後の let 束縛を呼び出し時に読む。
-// retry を許すのは冪等な呼び出しだけ (ADR-0017 Decision の非同期項): 読み取り (get) と keepalive の SET (src/redis-keepalive.ts が
-// withRedisRetry を使う)。policy は exponential 100ms 起点 + jitter で再試行 3 回 (計 4 attempt)、backoff の合計は
-// 1s 未満。timeout 2s は attempt ごとに掛かる (Redis 無応答時の総待ちは ADR-0017 Consequences)。
-// 再送が二重計上 / 二重消費になる呼び出し (INCR 系・getAndDelete) と、失敗を degraded に畳むだけで応答時間を
-// 伸ばしたくない ping (/health) は attemptOnce。
+
 export class Redis extends Context.Service<
   Redis,
   {

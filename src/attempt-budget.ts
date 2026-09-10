@@ -2,14 +2,11 @@ import { Effect } from "effect";
 import { Redis } from "./redis-service";
 import { captureCause } from "./sentry";
 
-// Redis 計数の試行枠 kernel。数えられなかった事実を `unavailable` として返すだけで、倒し方 (fail-closed /
-// fail-open) は呼び手が verdict を写して決める (正本: CONTEXT.md「試行枠」。MFA の呼び手だけ fail-closed に
-// 倒す理由は ADR-0013 Consequences → ADR-0016 が引き継ぐ)。invitation は unavailable を通し、MFA は拒否する。
+// 数えられなければ unavailable。倒し方 (fail-closed / fail-open) は呼び手が決める: CONTEXT.md「試行枠」
 
 export type AttemptBudgetVerdict = "accepted" | "exhausted" | "unavailable";
 
-// RedisError を E channel に載せず unavailable に畳む (呼び手に障害の分岐を持たせない)。observation は残す —
-// 計数不能が続いていることは Sentry でしか気付けない (level は captureCause の既定 warning、ADR-0017 Decision の Sentry 項)。
+// 観測は残す (計数不能の継続は Sentry でしか気付けない)
 export const spendAttemptBudget = Effect.fn("attemptBudget.spend")(function* (input: {
   key: string;
   windowSeconds: number;

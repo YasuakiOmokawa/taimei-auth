@@ -56,13 +56,11 @@ export const isWireShaped = (e: unknown): e is { error: string; status: number }
 
 type Report = Pick<CaptureContext, "tags" | "extra"> & { label: string };
 
-// boundary error は cause を warning (障害連打で error quota を食わない)、bug (defect / 形の合わない failure) は error。
 const toInternal = (e: unknown) =>
   isBoundaryError(e)
     ? { error: e.cause, level: "warning" as const }
     : { error: e, level: "error" as const };
 
-// Hono 既定の errorHandler が console.error していた観測手段を、Sentry が落ちている時のために残す。
 const send = ({ error, level }: ReturnType<typeof toInternal>, { label, ...context }: Report) => {
   console.error(label, error);
   Sentry.captureException(error, { ...context, level });
@@ -89,9 +87,7 @@ export function settleCause<E>(
   return { failure, reported: internal.map((r) => r.error) };
 }
 
-// Effect の外 (better-auth の onAPIError.onError / src/app.ts の auth.handler) で受けた thrown value を同じ規則で送る。
-// 観測自体の失敗は握る: better-call は onError の throw を auth.handler の reject にし、better-auth が組んだ 500 応答
-// (Set-Cookie 合流) を失わせる。元の error は send が Sentry より先に console.error するので痕跡は残る。
+// Effect の外の throw を同じ規則で送る (握る理由: ADR-0017「実装の機構」)
 export function captureThrown(error: unknown, component: string): void {
   try {
     send(toInternal(error), { label: `[${component}]`, tags: { component } });

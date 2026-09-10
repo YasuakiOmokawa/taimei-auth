@@ -85,7 +85,6 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  // use-case は Effect (ADR-0017)。CLI も app と同じ runtime (AppLayer) で走らせ、live ports を共有する。
   const report = toDisableUserMfaReport(
     userId,
     await getRuntime().runPromise(forceDisableMfa(userId)),
@@ -93,6 +92,5 @@ if (import.meta.main) {
   const json = JSON.stringify(report.body, null, 2);
   if (report.stream === "stdout") console.log(json);
   else console.error(json);
-  // pg pool が開いたままだと process が終了しないため明示 exit する。
   process.exit(report.exitCode);
 }
