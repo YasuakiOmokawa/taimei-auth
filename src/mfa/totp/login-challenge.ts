@@ -62,8 +62,9 @@ export const openLoginChallenge = Effect.fn("mfa.openLoginChallenge")(function* 
   challenge: LoginChallenge,
 ) {
   const challengeId = `mfa-lc-${crypto.randomUUID()}`;
-  const redis = yield* Redis;
-  yield* redis.set(challengeKey(challengeId), JSON.stringify(challenge), CHALLENGE_TTL_SECONDS);
+  yield* Redis.use((r) =>
+    r.set(challengeKey(challengeId), JSON.stringify(challenge), CHALLENGE_TTL_SECONDS),
+  );
   const signature = yield* signChallengeId(challengeId);
   return {
     name: LOGIN_CHALLENGE_COOKIE,
@@ -83,7 +84,7 @@ export const readLoginChallengeState = Effect.fn("mfa.readLoginChallengeState")(
 export const peekLoginChallenge = Effect.fn("mfa.peekLoginChallenge")(function* (headers: Headers) {
   const challengeId = yield* resolveChallengeId(headers);
   if (!challengeId) return null;
-  const raw = yield* (yield* Redis).get(challengeKey(challengeId));
+  const raw = yield* Redis.use((r) => r.get(challengeKey(challengeId)));
   const challenge = parseChallenge(raw);
   return challenge ? ({ ...challenge, challengeId } satisfies OpenedLoginChallenge) : null;
 });
@@ -101,7 +102,7 @@ export const consumeLoginChallenge = Effect.fn("mfa.consumeLoginChallenge")(func
 export const destroyLoginChallenge = Effect.fn("mfa.destroyLoginChallenge")(function* (
   challengeId: string,
 ) {
-  yield* (yield* Redis).delete(challengeKey(challengeId));
+  yield* Redis.use((r) => r.delete(challengeKey(challengeId)));
 });
 
 // 計数 kernel は attempt-budget.ts と共有。kernel は倒し方を持たないので、fail-closed (unavailable → Locked)
@@ -117,10 +118,12 @@ export const spendLoginChallengeAttempt = Effect.fn("mfa.spendLoginChallengeAtte
     component: "mfa-login-challenge",
   });
   if (verdict === "exhausted") {
-    yield* (yield* SentryService).captureMessage("mfa: login challenge attempt budget exhausted", {
-      level: "warning",
-      tags: { component: "mfa-login-challenge" },
-    });
+    yield* SentryService.use((sentry) =>
+      sentry.captureMessage("mfa: login challenge attempt budget exhausted", {
+        level: "warning",
+        tags: { component: "mfa-login-challenge" },
+      }),
+    );
   }
   return verdict;
 });

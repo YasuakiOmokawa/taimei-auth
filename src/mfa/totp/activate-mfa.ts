@@ -22,7 +22,7 @@ export const activate = Effect.fn("mfa.activate")(function* (input: {
   if (row.verifiedAt !== null) return yield* new AlreadyEnabled();
   if (input.enrollmentId !== row.enrollmentId) return yield* new EnrollmentChanged();
 
-  const ring = yield* (yield* MfaKeyring).ring;
+  const ring = yield* MfaKeyring.use((k) => k.ring);
   const secret = yield* Effect.promise(() => decryptValue(ring, secretCipher(row), input.actor.id));
   const timestep = matchTotpCode(secret, input.code, yield* Clock.currentTimeMillis);
   if (timestep === null) return yield* new InvalidCode();
@@ -42,6 +42,6 @@ export const activate = Effect.fn("mfa.activate")(function* (input: {
     userId: input.actor.id,
     payload: { ip, userAgent },
   });
-  yield* (yield* MfaNotifier).notifyEnabled(input.actor.email);
+  yield* MfaNotifier.use((n) => n.notifyEnabled(input.actor.email));
   return { sessionChanges } satisfies TotpSessionChanges;
 });

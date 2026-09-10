@@ -21,7 +21,7 @@ export const matchOwnedCode = Effect.fn("mfa.matchOwnedCode")(function* (
   input: { code: string; kind: MfaCodeKind },
 ) {
   const mfa = yield* MfaTotpRepo;
-  const ring = yield* (yield* MfaKeyring).ring;
+  const ring = yield* MfaKeyring.use((k) => k.ring);
 
   const row = yield* mfa.findMfaTotp(userId);
   if (!row || row.verifiedAt === null) return yield* new NotEnabled();

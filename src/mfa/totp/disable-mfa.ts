@@ -31,8 +31,8 @@ export const disable = Effect.fn("mfa.disable")(function* (input: {
   const sessionChanges = yield* sessions.revokeOthers(input.headers);
 
   const tx = yield* Transaction;
-  yield* tx.run((t) =>
-    Effect.gen(function* () {
+  yield* tx.run(
+    Effect.fn("mfa.disable.apply")(function* (t) {
       yield* mfa.deleteMfaTotp(input.actor.id, t);
       yield* mfa.deleteRecoveryCodesByUserId(input.actor.id, t);
     }),
@@ -45,6 +45,6 @@ export const disable = Effect.fn("mfa.disable")(function* (input: {
     userId: input.actor.id,
     payload: { ip, userAgent },
   });
-  yield* (yield* MfaNotifier).notifyDisabled(input.actor.email);
+  yield* MfaNotifier.use((n) => n.notifyDisabled(input.actor.email));
   return { sessionChanges } satisfies TotpSessionChanges;
 });
