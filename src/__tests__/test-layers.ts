@@ -16,7 +16,7 @@ export const failingRedisLayer: Layer.Layer<Redis> = Layer.succeed(
   }),
 );
 
-// 固定の count / ttl を返す Redis。上限の境界と第 2 線 (count 0) を Redis 無しで観測する。
+// 固定の count を返す Redis。上限の境界と第 2 線 (count 0) を Redis 無しで観測する。
 export const redisReturning = (result: RateWindowResult): Layer.Layer<Redis> =>
   Layer.succeed(
     Redis,

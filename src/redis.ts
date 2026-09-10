@@ -2,51 +2,35 @@ import { createClient, type RedisClientType } from "redis";
 import { Redis as UpstashRedis } from "@upstash/redis";
 import { isBunRuntime } from "./env";
 
-// Workers (workerd) は TCP 常駐コネクションを張れないため、Bun/Node = node-redis / Workers = Upstash
-// REST を init 時に選択する dual 構成。呼出側は interface 越しに使う (詳細: ADR-0011)。
+// workerd は TCP 常駐コネクションを張れないため Bun/Node = node-redis / Workers = Upstash REST に分ける。
 
-// better-auth secondaryStorage interface
 export interface RedisStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttl?: number): Promise<void>;
   delete(key: string): Promise<void>;
-  // single-use verification 値の消費口。未実装だと get→delete に fallback し並行 request が 2 回消費できる。
+  // 未実装だと better-auth が get→delete に fallback し、並行 request が単回 verification を 2 回消費できる。
   getAndDelete(key: string): Promise<string | null>;
 }
 
-// rate-limit window の状態: 現在の hit カウントと window 残り TTL (ttl の扱いは incrementRateWindow のコメント)。
-export type RateWindowResult = { count: number; ttl: number };
+export type RateWindowResult = { count: number };
 
-// MULTI INCR/EXPIRE/TTL の exec 応答を RateWindowResult に写す唯一の場所 (両実装が通る)。
-// 成功した INCR は必ず 1 以上を返す。両 library はコマンド error を throw する (Upstash は UpstashError、
-// node-redis は MultiErrorReply) ので、ここで弾くのは応答の形が変わった時の契約逸脱だけ。
-// count を 0 に潰すと fail-open 側の試行枠で storage 障害が「通す」に化けるため throw する
-// (attemptOnce の tryRedis が RedisError に写す)。倒し方の正本: CONTEXT.md「試行枠」。
-// boolean を Number() の前に弾くのは、位置ずれで EXPIRE の true が count 1 に化けるのを防ぐため。
-// ttl は呼び手が読まず (incrementRateWindow のコメント) security 判断に関与しないので、欠損・負値は windowSec に倒して throw しない。
-export function toRateWindowResult(res: unknown, windowSec: number): RateWindowResult {
-  const [rawCount, , rawTtl] = Array.isArray(res) ? res : [];
+// count を 0 に潰すと fail-open 側の試行枠で storage 障害が「通す」に化けるため throw する (倒し方: CONTEXT.md「試行枠」)。
+export function toRateWindowResult(res: unknown): RateWindowResult {
+  const [rawCount] = Array.isArray(res) ? res : [];
   const count = typeof rawCount === "boolean" ? Number.NaN : Number(rawCount);
   if (!Number.isFinite(count) || count < 1) {
     throw new Error(`incrementRateWindow: exec の応答が契約に外れる (count=${String(rawCount)})`);
   }
-  const ttl = Number(rawTtl);
-  return { count, ttl: Number.isFinite(ttl) && ttl >= 1 ? ttl : windowSec };
+  return { count };
 }
 
-// ESM live binding: initRedis 後の値を import 側が参照する。
 export let redisStorage: RedisStorage;
-// key を windowSec の window で 1 hit INCR し、現在カウントと TTL を返す。EXPIRE を INCR ごとに打つので window は
-// 「最後の req から windowSec」(固定 window ではない) になり、直後の TTL は常に windowSec に等しい。呼び手はこれを根拠に
-// 待ち時間として windowSec を返し、ttl を読まない (読む場所を増やさない)。INCR + EXPIRE + TTL の MULTI
-// による atomic 化は必須 — INCR 後 EXPIRE 前に crash すると TTL なし counter が永続残留する。
+// INCR + EXPIRE を MULTI で atomic にするのは必須: INCR 後 EXPIRE 前に落ちると TTL 無し counter が永続残留する。
 export let incrementRateWindow: (key: string, windowSec: number) => Promise<RateWindowResult>;
 export let pingRedis: () => Promise<boolean>;
-// テストの key 直接操作専用の生 client accessor (接続保証込み)。production は interface 越しに使う
-// (biome の noRestrictedImports がテスト以外からの import を拒否する)。
 export let getRedis: () => Promise<RedisClientType>;
 
-// Workers: Upstash REST。automaticDeserialization:false は better-auth の JSON 文字列契約に合わせる (ADR-0011)。
+// automaticDeserialization:false は better-auth の JSON 文字列契約に合わせるため。
 function initUpstash(url: string, token: string): void {
   const r = new UpstashRedis({ url, token, automaticDeserialization: false });
   redisStorage = {
@@ -61,7 +45,7 @@ function initUpstash(url: string, token: string): void {
     getAndDelete: async (key) => (await r.getdel<string>(key)) ?? null,
   };
   incrementRateWindow = async (key, windowSec) =>
-    toRateWindowResult(await r.multi().incr(key).expire(key, windowSec).ttl(key).exec(), windowSec);
+    toRateWindowResult(await r.multi().incr(key).expire(key, windowSec).exec());
   pingRedis = () =>
     r
       .ping()
@@ -74,13 +58,11 @@ function initUpstash(url: string, token: string): void {
   };
 }
 
-// Bun / Node: node-redis (compose redis / テスト / CLI script)。
 function initNodeRedis(redisUrl: string): void {
   const c = createClient({ url: redisUrl }) as RedisClientType;
   c.on("error", (err) => console.error("Redis error:", err));
 
-  // 接続の入口はここ 1 つ (単一所有)。open 済み client への再 connect() は node-redis が reject するため、
-  // memo は in-flight の connect だけを保持し決着で破棄する (持ち越すと閉じた後も即 resolve が続く)。
+  // open 済み client への再 connect() は node-redis が reject するため memo は in-flight の connect だけ持つ。
   let connecting: Promise<unknown> | undefined;
   const connectedClient = async (): Promise<RedisClientType> => {
     // isOpen は connect() 開始で同期的に true になるため、それだけ見ると 2 人目が未 ready の client を掴む。
@@ -108,11 +90,9 @@ function initNodeRedis(redisUrl: string): void {
   };
   incrementRateWindow = async (key, windowSec) => {
     const redis = await connectedClient();
-    const res = await redis.multi().incr(key).expire(key, windowSec).ttl(key).exec();
-    return toRateWindowResult(res, windowSec);
+    return toRateWindowResult(await redis.multi().incr(key).expire(key, windowSec).exec());
   };
-  // 決して reject しない boolean 契約 (/health が try/catch なしで待ち redis 断を 503 degraded にするため)。
-  // 注意: 接続が確立も失敗もしない間は resolve しない — 打ち切りは呼び出し側 (src/index.ts の boot race)。
+  // reject しない boolean 契約 (/health が 503 degraded に倒す)。未決着の間は resolve せず打ち切りは呼び出し側。
   pingRedis = () =>
     connectedClient()
       .then((redis) => redis.ping())
@@ -120,7 +100,6 @@ function initNodeRedis(redisUrl: string): void {
       .catch(() => false);
 }
 
-// Upstash の REST 認証情報が揃えば Upstash、なければ node-redis (Workers は env→process.env 反映後に呼ぶ)。
 export function initRedis(): void {
   if (redisStorage) return;
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -132,7 +111,6 @@ export function initRedis(): void {
   initNodeRedis(process.env.REDIS_URL ?? "redis://localhost:6379");
 }
 
-// Bun / Node は module ロード時に自動 init (Workers は worker entry が initRedis を呼ぶ)。
 if (isBunRuntime()) {
   initRedis();
 }

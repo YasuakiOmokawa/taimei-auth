@@ -31,12 +31,9 @@ describe("Redis service (live)", () => {
     expect(await run(Redis.use((redis) => redis.ping()))).toBe(true);
   });
 
-  test("incrementRateWindow は count と ttl を返す (再試行しない書き込み系)", async () => {
+  test("incrementRateWindow は count を返し EXPIRE を付ける (再試行しない書き込み系)", async () => {
     const r = await run(Redis.use((redis) => redis.incrementRateWindow(`${key}:w`, 5)));
     expect(r.count).toBe(1);
-    expect(r.ttl).toBeGreaterThan(0);
-    expect(r.ttl).toBeLessThanOrEqual(5);
-    // toRateWindowResult は TTL 欠損 / -1 を windowSec に倒すため、EXPIRE が実際に付いたことは生 TTL で見る。
     const rawTtl = await (await getRedis()).ttl(`${key}:w`);
     expect(rawTtl).toBeGreaterThanOrEqual(1);
     expect(rawTtl).toBeLessThanOrEqual(5);
