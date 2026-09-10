@@ -23,8 +23,6 @@ export const mfaCodeKindSchema = z.enum([
   "recovery_code",
 ] as const satisfies readonly MfaCodeKind[]);
 
-// Effect 値なので guard が yield* するまで body を読まない (401 / 403 先行時に parse しない)。
-// zod を残すのは 400 の details (zod flatten の message 文字列) が wire 契約だから (ADR-0017 Decision の zod 項)。
 const parse =
   (details: boolean) =>
   <S extends z.ZodType>(c: Context, schema: S): ParseBody<z.output<S>> =>

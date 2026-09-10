@@ -10,8 +10,6 @@ import {
   wireErrorResponse,
 } from "./wire-error";
 
-// Hono は handler の Error を飲み込んで 500 を返し rethrow しない (hono-base.js の errorHandler) ため、Sentry 送信は adapter が担う。
-
 export type RouteEffect<A> = Effect.Effect<A, RouteError, AppServices>;
 
 export async function runRoute(c: Context, program: RouteEffect<Response>): Promise<Response> {

@@ -15,8 +15,6 @@ export type Actor = {
   lastUsedCompanyId: string | null;
 };
 
-// operation 単位 entry が受け取る body parse。Effect 値は yield* されるまで実行されないため、
-// 401 / 403 が先行した request では body を読まない (zod schema は Transport 側に残す)。
 export type ParseBody<T> = Effect.Effect<T, InvalidArgument>;
 
 const failClosedAsUnauthorized = (failure: { readonly cause: unknown }) =>

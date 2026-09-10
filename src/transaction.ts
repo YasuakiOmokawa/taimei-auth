@@ -3,11 +3,7 @@ import type { DbTx } from "@/db/transaction";
 import { runInTransaction } from "@/db/transaction";
 import { DbError } from "./errors";
 
-// Transaction service (ADR-0017 Decision の tx 項): drizzle の tx (Promise callback) の中で Effect program を走らせる。
-// 不変条件: tx 内の failure (Fail) と defect (Die) は常に rollback する。drizzle は callback が throw した時だけ
-// rollback するため、Exit が失敗なら sentinel (RollbackSignal) を throw して rollback を引き、外側で元の Exit に
-// 復元する。
-
+// drizzle は callback の throw でしか rollback しない。機構は ADR-0017「実装の機構」
 export class RollbackSignal<E> extends Error {
   constructor(readonly exit: Exit.Exit<never, E>) {
     super("transaction rolled back (Effect failure inside callback)");
@@ -15,11 +11,6 @@ export class RollbackSignal<E> extends Error {
   }
 }
 
-// tx callback の中で program を走らせ、結果の Exit を Effect に戻す。callback 内で失敗した program は RollbackSignal を
-// throw して rollback を引き、ここで元の Exit に復元する。それ以外の throw (drizzle / pg) は DbError に写像する。
-// callback 内の program は runPromiseExitWith で別の root fiber として走るため、外側の fiber が interrupt
-// されても callback は止まらず commit まで進む (Fail / Die だけが rollback の契機)。tx を timeout や
-// 並列失敗の interrupt で切る呼び出し元は現在無い (ADR-0017 Consequences)。
 const runThroughCallback = <A, E, R>(
   open: (
     run: (program: Effect.Effect<A, E, R>) => Promise<Exit.Exit<A, E>>,

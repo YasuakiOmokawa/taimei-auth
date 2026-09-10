@@ -9,11 +9,6 @@ import type { SentryService } from "../../sentry";
 import type { ChallengeExpired, Locked } from "../error-mapping";
 import type { MfaKeyRing } from "./cipher";
 
-// MFA domain の ports (ADR-0017 Decision の境界表 1 行目と依存注入項)。use-case はこの service を yield* し、
-// db/repositories・gateway・notification-adapter を直接 import しない (結線は wiring.ts のみ)。
-
-// Repository (db/repositories/mfa-totp、Promise) の Effect face。identity DB を別 process (RPC) へ
-// 分離する時はこの interface の live 実装だけを差し替える (型導出の規則は src/CLAUDE.md の Effect様式)。
 export class MfaTotpRepo extends Context.Service<MfaTotpRepo, LiftedModule<typeof repo>>()(
   "taimei/MfaTotpRepo",
 ) {}
@@ -54,9 +49,7 @@ export class MfaNotifier extends Context.Service<
   }
 >()("taimei/MfaNotifier") {}
 
-// 無効化の総当たり防御 (Redis 計数)。fail-closed = 数えられない時も Locked。
-// seam にする理由: fail-closed を E channel = Locked として interface に固定し、test が Locked を注入して
-// 枯渇経路を Redis 無しで観測するため。
+// 数えられない時も Locked (fail-closed): CONTEXT.md「試行枠」
 export class MfaDisableBudget extends Context.Service<
   MfaDisableBudget,
   {

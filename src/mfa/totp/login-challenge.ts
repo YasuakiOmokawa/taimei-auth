@@ -107,9 +107,7 @@ export const destroyLoginChallenge = Effect.fn("mfa.destroyLoginChallenge")(func
   yield* Redis.use((r) => r.delete(challengeKey(challengeId)));
 });
 
-// 計数 kernel は attempt-budget.ts と共有。kernel は倒し方を持たないので、fail-closed (unavailable → Locked)
-// は呼び手 complete-login-challenge.ts が verdict を写して決める。上限到達はロック急増の唯一の検知信号
-// なので Sentry warning に載せる (§8.2)。
+// fail-closed (unavailable → Locked) は complete-login-challenge.ts が verdict を写す: CONTEXT.md「試行枠」。上限到達は Sentry へ (ロック急増の唯一の検知信号)
 export const spendLoginChallengeAttempt = Effect.fn("mfa.spendLoginChallengeAttempt")(function* (
   challengeId: string,
 ) {

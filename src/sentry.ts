@@ -33,8 +33,6 @@ export const Sentry = {
     backend.captureMessage(message, context),
 };
 
-// Effect service 版 (ADR-0017 Stage 4)。use-case / hook は Sentry facade を直接呼ばず、この service を yield* する
-// (test Layer で差し替え可能)。live は上の facade に委譲するだけで、backend の注入点は setSentryBackend のまま。
 export class SentryService extends Context.Service<
   SentryService,
   {
@@ -43,9 +41,7 @@ export class SentryService extends Context.Service<
   }
 >()("taimei/Sentry") {}
 
-// 境界失敗 (cause 付き failure) を Sentry に記録する combinator。level は boundary error の warning (ADR-0017 Decision の
-// Sentry 項) を既定にし、呼び手の倒し方 (fail-open / fail-closed) で変えない。倒し方の分岐は呼び出し側が続ける
-// (`Effect.catchTag("RedisError", (f) => captureCause({ tags })(f).pipe(Effect.as(null)))`)。
+// level は warning が既定 (ADR-0017 Decision の Sentry 項)。倒し方は呼び手が続ける
 export const captureCause =
   (context?: CaptureContext) =>
   (failure: { readonly cause: unknown }): Effect.Effect<void, never, SentryService> =>

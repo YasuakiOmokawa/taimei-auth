@@ -30,12 +30,7 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-// HTTP 経路の試行枠 (CONTEXT.md「試行枠」)。倒し方は fail-open (根拠: CONTEXT.md「fail-closed / fail-open」) で、
-// kernel の unavailable は通す。Retry-After は windowSec: 計数は INCR ごとに EXPIRE を打つので残り TTL は常に
-// windowSec に等しい (正本: redis.ts の MULTI 計数のコメント)。kernel は ttl を返さない。
-// key の解決 (Hono Context) は middleware 側に置き、program は Hono 非依存にして test が Redis / Sentry の
-// test Layer だけで fail-open と境界を観測できるようにする。
-// middleware の options から keyFn を Hono Context で解決済みの key に置き換えた形。
+// fail-open。Retry-After = windowSec (INCR ごとに EXPIRE するので残り TTL は常に windowSec): CONTEXT.md「試行枠」
 type RateLimitInput = Omit<RateLimitOptions, "keyFn"> & { key: string };
 
 export const rateLimitProgram = Effect.fn("rateLimit.check")(function* (input: RateLimitInput) {

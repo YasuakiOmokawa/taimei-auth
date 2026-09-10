@@ -37,7 +37,7 @@ _Avoid_: ユーザー (より広義、global user を指す時に使う), メン
 _Avoid_: 役職 (人事ドメインの語と紛らわしい), permission (個別アクション認可と混同), member_type (freee の `Membership.Type` は業種分類で role とは別概念)
 
 **invitation**:
-**事業所** から外部 email 宛に出された「メンバー参加」の打診 1 件。`token` + `expires_at` (24h) + `used_at` で単発消費を管理する verification 的な独立テーブル。受諾されると **membership** 行が新規作成される (= INVITED 状態の dangling membership 行は作らない)。期限切れ / 取消は invitation 行に対する update + audit 記録で表現。
+**事業所** から外部 email 宛に出された「メンバー参加」の打診 1 件。`token` + `expires_at` (24h) を持つ verification 的な独立テーブルで、状態は `status` (PENDING / ACCEPTED / REVOKED) が正、`used_at` は派生値。受諾されると **membership** 行が新規作成される (= INVITED 状態の dangling membership 行は作らない)。期限切れ / 取消は invitation 行に対する update + audit 記録で表現。
 _Avoid_: 招待状態 (membership に invitation_status 列を持たせるパターン、PR #55 → #63 で不採用), pending member (status 表現と紛らわしい)
 
 ### 認証画面 (共通画面 SPA)

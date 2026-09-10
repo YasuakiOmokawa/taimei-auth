@@ -4,8 +4,6 @@ import { generateInvitationId, generateInvitationToken } from "@/db/repositories
 import { generateMembershipId } from "@/db/repositories/membership";
 import { generateEnrollmentId, generateRecoveryCodeId } from "@/db/repositories/mfa-totp";
 
-// ID / token 生成 (ADR-0017 Decision の依存注入項)。use-case が直接 nanoid を呼ばず service を yield* することで、テストが
-// 決定的な ID を注入できる。書式の正本は db/repositories の generate* (db の test も同じ関数を使う)。
 export class IdGenerator extends Context.Service<
   IdGenerator,
   {

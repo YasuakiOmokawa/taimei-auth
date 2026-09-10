@@ -11,19 +11,15 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-// membership / invitation が共有する role 値集合の SSOT。CONTEXT.md 'role'
+// 用語の正本: CONTEXT.md (role / org_code / activation_status / 事業所 / audit log)
 export type Role = "OWNER" | "ADMIN" | "MEMBER";
 
-// company / audit_log payload が共有する org_code 値集合の SSOT。CONTEXT.md 'org_code'
 export type OrgCode = "PERSONAL" | "CORPORATE";
 
-// 事業所のライフサイクル状態。CONTEXT.md 'activation_status'
 export type ActivationStatus = "ACTIVE" | "DELETED";
 
-// used_at 1 列に 3 状態を多重化せず、独立した status 列で表す。
 export type InvitationStatus = "PENDING" | "ACCEPTED" | "REVOKED";
 
-// 事業所 (課金単位)。他テーブルが参照するため declaration を先頭に置く。詳細: CONTEXT.md '事業所 / company'
 export const company = pgTable("company", {
   id: text("id").primaryKey().notNull(),
   name: text("name").notNull(),
@@ -46,7 +42,6 @@ export const user = pgTable(
     emailVerified: boolean("email_verified").default(false).notNull(),
     image: text("image"),
     revision: integer("revision").notNull().default(0),
-    // 新規 session 確立時の default 候補事業所。削除済 company を参照しないよう ON DELETE SET NULL。
     lastUsedCompanyId: text("last_used_company_id").references(() => company.id, {
       onDelete: "set null",
     }),
@@ -78,7 +73,7 @@ export const session = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    // 現在 active な事業所。DeleteCompany (soft delete) 時の NULL 更新は handler が責任を持つ。
+    // DeleteCompany は soft delete で ON DELETE が発火しないため、NULL 更新は handler が行う。
     currentCompanyId: text("current_company_id").references(() => company.id, {
       onDelete: "set null",
     }),
@@ -130,22 +125,17 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
-// 自前 MFA (TOTP) の登録行。better-auth は複製しないため repository (db/repositories/mfa-totp.ts) 直書きが
-// 正 (db/CLAUDE.md ルール 2 の Session/User 例外の対象外)。状態は行が 3 値で表す: 行なし = 未登録 /
-// verified_at NULL = 登録済み未有効 / 非 NULL = 有効。flag 列は持たない (設計: ADR-0016)。
 export const mfaTotp = pgTable("mfa_totp", {
   userId: text("user_id")
     .primaryKey()
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  // MFA 登録識別子。activate はこの一致を要求する (別タブの古い登録画面からの有効化を弾く)。
   enrollmentId: text("enrollment_id").notNull(),
   // AES-256-GCM (AAD = user_id)。列は base64 文字列 — repo に bytea の前例が無いため text を踏襲。
   secretCiphertext: text("secret_ciphertext").notNull(),
   secretIv: text("secret_iv").notNull(),
   keyVersion: integer("key_version").notNull(),
   verifiedAt: timestamp("verified_at"),
-  // 受理済み timestep の単調比較対象 (リプレイ拒否)。条件付き単文 UPDATE の WHERE がこの列を見る。
   lastUsedTimestep: bigint("last_used_timestep", { mode: "number" }).default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -167,7 +157,7 @@ export const mfaRecoveryCode = pgTable(
   (table) => [index("mfa_recovery_code_user_id_idx").on(table.userId)],
 );
 
-// account_delete 後も log を残すため意図的に user_id に FK を付けない。詳細: CONTEXT.md 'audit log'
+// account_delete 後も log を残すため意図的に user_id に FK を付けない
 export const auditLog = pgTable(
   "audit_log",
   {
@@ -183,7 +173,6 @@ export const auditLog = pgTable(
   ],
 );
 
-// 1 user × 1 company の所属関係 1 行 (N:M bridge)。company_id は誤物理削除を防ぐ ON DELETE RESTRICT。
 // user_id は退会時に所属解除する CASCADE (OWNER pre-check があるため責任者不在は起きない: PR #55 → #63)。
 export const membership = pgTable(
   "membership",
@@ -210,7 +199,6 @@ export const membership = pgTable(
   ],
 );
 
-// 事業所から外部 email 宛の参加打診。company の cascade 削除を許容する (dangling 招待を残さない)。
 export const invitation = pgTable(
   "invitation",
   {
@@ -219,16 +207,15 @@ export const invitation = pgTable(
       .notNull()
       .references(() => company.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
-    // 招待時に付与する role (= 受諾後の membership.role に become)
     role: text("role").$type<Role>().notNull(),
     token: text("token").notNull().unique(),
     expiresAt: timestamp("expires_at").notNull(),
     status: text("status").$type<InvitationStatus>().notNull().default("PENDING"),
     acceptedAt: timestamp("accepted_at"),
     revokedAt: timestamp("revoked_at"),
-    // legacy alias / 派生値 (COALESCE(accepted_at, revoked_at)) の窓口。status 更新と同 transaction で set。
+    // status の派生値 (COALESCE(accepted_at, revoked_at))。status 更新と同 transaction で set。
     usedAt: timestamp("used_at"),
-    // 招待者の退会で道連れ削除 (audit_log に invitation_sent が残る)。NOT NULL のため SET NULL は不可。
+    // 招待者の退会で道連れ削除 (NOT NULL のため SET NULL は不可)。
     invitedByUserId: text("invited_by_user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

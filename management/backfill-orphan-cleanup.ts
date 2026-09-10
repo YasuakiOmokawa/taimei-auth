@@ -6,8 +6,6 @@ import { backfillOrphanCleanup } from "../src/account/backfill-orphan-cleanup";
 import { getRuntime } from "../src/runtime";
 
 const execute = process.argv.includes("--execute");
-// use-case は Effect (ADR-0017)。CLI も app と同じ runtime (AppLayer) で走らせ、live ports を共有する。
 const report = await getRuntime().runPromise(backfillOrphanCleanup({ execute }));
 console.log(JSON.stringify({ mode: execute ? "execute" : "dry-run", ...report }, null, 2));
-// pg pool が開いたままだと process が終了しないため明示 exit する。
 process.exit(0);

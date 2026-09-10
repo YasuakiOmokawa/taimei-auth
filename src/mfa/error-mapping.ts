@@ -1,13 +1,6 @@
 import { Data } from "effect";
 import type { MatchesWireShape, MfaWireErrorCode } from "./wire-contracts";
 
-// MFA use-case の失敗 class の正本。自前検証 (src/mfa/totp/) が直接この class を E channel に載せる —
-// プラグイン写像は存在しない (完全自前化: ADR-0016)。
-//
-// 各 class が wire code `error` と HTTP `status` を自身で持つ形は guard 層
-// (src/membership/guard/errors.ts) と同形 — adapter (src/handlers/run-route.ts) が guard の failure と
-// 同じ 1 経路で wire に落とせる状態を保つ (ADR-0017 Decision の failure 項)。
-
 export class InvalidCode extends Data.TaggedError("InvalidCode") {
   readonly error = "invalid_code" as const;
   readonly status = 400 as const;
