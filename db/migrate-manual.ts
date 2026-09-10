@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { db } from "./client";
 import { sql } from "drizzle-orm";
 
-// drizzle-kit が管理できない PL/pgSQL trigger を別 dir に分離して適用する (db/CLAUDE.md ルール 8)。
 const manualDir = join(import.meta.dir, "..", "drizzle", "manual");
 
 if (!existsSync(manualDir)) {

@@ -3,8 +3,6 @@ import { db } from "../client";
 import { auditLog, type OrgCode, type Role } from "../schema";
 import type { DbOrTx } from "../transaction";
 
-// user の意図ある action のみ記録する (session revoke 等の internal state change は対象外)。IP / userAgent は
-// session cascade delete でも forensic 可能にするため payload に persist。詳細: CONTEXT.md 'audit log'
 export type AuditLogEntry =
   | {
       eventType: "sign_in";
@@ -16,8 +14,7 @@ export type AuditLogEntry =
       userId: string;
       payload: { ip: string; userAgent: string };
     }
-  // secret / リカバリーコード / 残数は載せない (監査ログ閲覧を second factor の漏洩経路にしない)。ip が null を
-  // 取るのは運用救済スクリプトに request が無いためで、その経路は userAgent に実行元名を入れて主体を示す。
+  // secret / リカバリーコード / 残数は載せない (監査ログ閲覧を second factor の漏洩経路にしない)。
   | {
       eventType: "mfa_enabled";
       userId: string;
@@ -148,8 +145,7 @@ export async function appendAuditLog(entry: AuditLogEntry, txOrDb: DbOrTx = db):
   await appendAuditLogs([entry], txOrDb);
 }
 
-// N 件を 1 statement で書く。FOR UPDATE lock 保持中の tx で N 回 INSERT すると lock 時間が round trip × N
-// で伸びるため batch を正とする (created_at は tx 内 now() 固定なので単発と同値)。
+// FOR UPDATE lock 保持中の tx で N 回 INSERT すると lock 時間が round trip × N に伸びるため batch にする。
 export async function appendAuditLogs(
   entries: AuditLogEntry[],
   txOrDb: DbOrTx = db,
@@ -165,9 +161,6 @@ export async function appendAuditLogs(
   );
 }
 
-// 型安全な helper を export。call site が event_type / payload の整合性を string で組み立てる事故を防ぐ。
-
-// account_delete は payload なし (削除対象は user_id 列で表現)。
 export const recordAccountDeleted = (
   params: { user_id: string },
   txOrDb: DbOrTx = db,
@@ -262,8 +255,7 @@ export const recordInvitationRevoked = (
     txOrDb,
   );
 
-// 招待受諾の防御発火を記録する。accept tx の rollback 後に別 tx で同期実行し、DB 書込み前に console.warn
-// で痕跡を残す。payload key set は監視 query 互換のため固定し PII は含めない (運用契約: ADR-0012)。
+// payload の key set は監視 query 互換のため固定し PII は含めない。
 export const recordInvitationAcceptRejected = (
   params: {
     actor_user_id: string;

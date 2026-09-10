@@ -1,10 +1,9 @@
-// Bun entry 専用。@sentry/bun を初期化し facade に backend を注入する (Workers バンドルには含まれない)。
 import * as SentryBun from "@sentry/bun";
 import { setSentryBackend, type CaptureContext } from "./sentry";
 
 export function initBunSentry(): void {
   const dsn = process.env.SENTRY_DSN;
-  // DSN 無しなら backend を差し替えず console fallback を残す (差し替えると未初期化 SDK が例外を黙って捨てる)。
+  // DSN 無しで差し替えると未初期化 SDK が例外を黙って捨てるため console fallback を残す。
   if (!dsn) {
     console.warn("[sentry] SENTRY_DSN is not set, using console fallback");
     return;

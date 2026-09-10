@@ -11,9 +11,6 @@ import {
   user,
 } from "../schema";
 
-// test の観測 (事後状態の読み取り) の正本。被験体 (port / use-case / repository) から独立した oracle にするため
-// drizzle で直接読む。repository の find* は再利用しない。
-
 export type MfaTotpRow = typeof mfaTotp.$inferSelect;
 
 const first = <T>(rows: T[]): T | undefined => rows.at(0);
@@ -79,7 +76,6 @@ export function readInvitationsByEmail(
     .where(and(eq(invitation.companyId, companyId), eq(invitation.email, email)));
 }
 
-// PENDING かつ expires_at > now (strict)。now は等号の境界を test するため注入できる。
 export function readPendingInvitation(
   companyId: string,
   email: string,

@@ -2,8 +2,6 @@ import { eq, inArray } from "drizzle-orm";
 import { db } from "../client";
 import { auditLog, company, invitation, user } from "../schema";
 
-// prefix に依らない cleanup (e2e fixture の email / 固定 id / company 名ベースの回収)。
-
 export async function deleteUsersByIds(userIds: string[]): Promise<void> {
   if (userIds.length === 0) return;
   await db.delete(user).where(inArray(user.id, userIds));

@@ -21,7 +21,6 @@ const REDIS_TIMEOUT = "2 seconds";
 const retrySchedule = Schedule.exponential("100 millis").pipe(Schedule.jittered);
 const withRedisTimeout = timeoutAsBoundary((cause) => new RedisError({ cause }), REDIS_TIMEOUT);
 
-// 冪等な Redis 呼び出しにだけ掛ける retry policy。Layer の get と keepalive が共有する。
 export const withRedisRetry = <A, R>(
   effect: Effect.Effect<A, RedisError, R>,
 ): Effect.Effect<A, RedisError, R> =>
@@ -40,7 +39,6 @@ export const RedisLive = Layer.succeed(
     delete: (key) => attemptOnce(() => redisStorage.delete(key)),
     getAndDelete: (key) => attemptOnce(() => redisStorage.getAndDelete(key)),
     incrementRateWindow: (key, windowSec) => attemptOnce(() => incrementRateWindow(key, windowSec)),
-    // pingRedis は reject しない boolean 契約。false (到達不能) は failure でなく値として返す。
     ping: () => attemptOnce(() => pingRedis()),
   }),
 );

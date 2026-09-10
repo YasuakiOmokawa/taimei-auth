@@ -4,10 +4,9 @@ import { db } from "../client";
 import { invitation, type Role } from "../schema";
 import type { DbOrTx } from "../transaction";
 
-// Stripe 流 prefix `inv_<24chars>` で entity type を log / audit_log 上で即判定可能に。
 export const generateInvitationId = (): string => `inv_${nanoid(24)}`;
 
-// accept URL に載せる token。invitation.id とは別 (id は内部参照、token は推測困難な公開 secret)。
+// id は内部参照、token は推測困難な公開 secret として使い分ける。
 export const generateInvitationToken = (): string => nanoid(32);
 
 export type InvitationRow = typeof invitation.$inferSelect;
@@ -37,7 +36,7 @@ export async function findInvitationById(
     .then((rows) => rows.at(0));
 }
 
-// 重複招待の idempotency 判定。migration 前データに大文字が残る可能性に備え lower() 比較で robust に。
+// migration 前データに大文字が残る可能性に備え lower() 比較にする。
 export async function findActivePendingInvitation(
   companyId: string,
   email: string,
@@ -100,7 +99,6 @@ export async function insertInvitation(
     });
 }
 
-// 既に PENDING でない行は 0 件更新 (= 二重 accept 防御)。
 export async function markInvitationAccepted(
   id: string,
   txOrDb: DbOrTx = db,
@@ -114,7 +112,6 @@ export async function markInvitationAccepted(
     .then((rows) => rows.at(0));
 }
 
-// PENDING のみ revoke 可能 (それ以外は 0 件更新)。
 export async function markInvitationRevoked(
   id: string,
   companyId: string,
@@ -135,8 +132,7 @@ export async function markInvitationRevoked(
     .then((rows) => rows.at(0));
 }
 
-// ADR-0010: 事業所削除時に PENDING 招待を一括 REVOKED 化する (revoked 行を返すので呼び出し側が audit を
-// 残せる)。soft-deleted company への受諾で所属が復活するのを防ぐ (受諾側のガードと対で効かせる)。
+// soft-deleted company への受諾で所属が復活するのを防ぐ (受諾側のガードと対で効かせる)。
 export async function revokePendingInvitationsOfCompany(
   companyId: string,
   txOrDb: DbOrTx = db,
@@ -149,7 +145,6 @@ export async function revokePendingInvitationsOfCompany(
     .returning();
 }
 
-// expired は status 列ではなく expires_at から導出する (status は PENDING/ACCEPTED/REVOKED の 3 値のみ)。
 export function isAcceptable(row: InvitationRow): boolean {
   return row.status === "PENDING" && row.expiresAt.getTime() > Date.now();
 }

@@ -3,18 +3,15 @@ import { db } from "../client";
 import { mfaRecoveryCode, mfaTotp } from "../schema";
 import type { DbOrTx } from "../transaction";
 
-// 自前 MFA テーブルへの唯一の入口。better-auth は複製しないため repository 直書きで良い
-// (db/CLAUDE.md ルール 2 の Session/User 例外の対象外)。全関数は条件付き単文 (または素の CRUD) で、
-// 並行決着は WHERE 句が担う — 行の解釈 (enabled 等) はここに置かない (use-case 側の policy が所有)。
+// 全関数は条件付き単文で、並行決着は WHERE 句が担う (行の解釈は use-case 側)。
 
 export type MfaTotpRow = typeof mfaTotp.$inferSelect;
 
-// 採番の正本。リカバリーコード id の "NN-<uuid>" は先頭 2 桁 = 挿入順 (id 昇順読み出しが再表示順)。
 export const generateEnrollmentId = (): string => crypto.randomUUID();
 export const generateRecoveryCodeId = (index: number): string =>
   `${String(index).padStart(2, "0")}-${crypto.randomUUID()}`;
 
-// secret 列を含む全射影。復号は use-case の cipher が行い、平文はプロセス境界を越えない。
+// 復号は use-case の cipher が行い、平文はプロセス境界を越えない。
 export async function findMfaTotp(
   userId: string,
   txOrDb: DbOrTx = db,
@@ -27,7 +24,6 @@ export async function findMfaTotp(
     .then((rows) => rows.at(0));
 }
 
-// チャレンジ要否判定用の最小射影。ログイン hot path の +1 SELECT はこれだけを使い secret 列に触れない。
 export async function readMfaVerification(
   userId: string,
 ): Promise<{ verifiedAt: Date | null } | undefined> {
@@ -39,8 +35,6 @@ export async function readMfaVerification(
     .then((rows) => rows.at(0));
 }
 
-// 状態表示用の 1 文読み (行 + 未使用コード数)。status 参照は rate limit 対象外で呼ばれやすく、
-// 2 往復にしない。secret 列には触れない。
 export async function readMfaStatusRow(
   userId: string,
 ): Promise<{ verifiedAt: Date | null; unusedRecoveryCodes: number } | undefined> {
@@ -64,7 +58,6 @@ export type NewMfaTotpEnrollment = {
   keyVersion: number;
 };
 
-// INSERT ... ON CONFLICT DO NOTHING。true = 挿入できた (並行 enroll の勝者)。
 export async function insertMfaTotpEnrollment(
   values: NewMfaTotpEnrollment,
   txOrDb: DbOrTx = db,
@@ -77,7 +70,6 @@ export async function insertMfaTotpEnrollment(
     .then((rows) => rows.length === 1);
 }
 
-// 識別子照合 + verified 化 + timestep 消費が 1 文に同居する。true = 勝者ちょうど 1。
 export async function activateMfaTotp(
   userId: string,
   enrollmentId: string,
@@ -97,7 +89,7 @@ export async function activateMfaTotp(
     .then((rows) => rows.length === 1);
 }
 
-// リプレイ・並行の決着点。last_used_timestep < $2 の単調比較で同一 timestep の 2 回目と過去コードを拒む。
+// last_used_timestep の単調比較で同一 timestep の 2 回目と過去コードを拒む。
 export async function consumeTotpTimestep(userId: string, timestep: number): Promise<boolean> {
   return db
     .update(mfaTotp)
@@ -144,7 +136,6 @@ export type UnusedRecoveryCode = {
   keyVersion: number;
 };
 
-// used_at IS NULL のみ、id 昇順 (= 挿入順) で返す。再表示順の固定は id 形式が担う (schema コメント)。
 export async function listUnusedRecoveryCodes(
   userId: string,
   txOrDb: DbOrTx = db,
@@ -161,7 +152,6 @@ export async function listUnusedRecoveryCodes(
     .orderBy(asc(mfaRecoveryCode.id));
 }
 
-// 単回消費の決着点。used_at IS NULL の条件付き単文 UPDATE で並行消費の勝者をちょうど 1 にする。
 export async function consumeRecoveryCode(userId: string, id: string): Promise<boolean> {
   return db
     .update(mfaRecoveryCode)

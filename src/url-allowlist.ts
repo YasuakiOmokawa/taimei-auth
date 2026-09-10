@@ -1,6 +1,5 @@
 import { TAIMEI_SERVICES, type ServiceName } from "./services";
 
-// redirect_url 検証ポリシー: docs/adr/0003-redirect-url-allowlist-policy.md
 const ALLOWED_PROTOCOLS = ["http:", "https:"] as const;
 
 export const validateRedirectUrl = (redirectUrl: string, service: ServiceName): boolean => {

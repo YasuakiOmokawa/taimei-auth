@@ -14,9 +14,7 @@ export type RateLimitOptions = {
 export const magicLinkKey = (axis: "ip" | "email", id: string): string =>
   `rate-limit:magic-link:${axis}:${id}`;
 
-// MFA 状態変更を数える軸。セッションあり経路にプラグインの試行制限が継承されないため誤コード連投の歯止めは
-// ここだけ。軸を IP でなくセッションに取るのは cookie を盗んだ攻撃者が IP を変えても同じ枠に載せるため。
-// token をそのままキー名にしないのは、キー名が Redis 上に残る有効な認証情報になってしまうから。
+// 軸を session にするのは IP を変えても同じ枠に載せるため、hash するのはキー名が有効な認証情報にならないため。
 export async function mfaAttemptKey(headers: Headers, fallbackIp: string): Promise<string> {
   const sessionToken = getSessionCookie(headers);
   if (!sessionToken) return `rate-limit:mfa-attempt:ip:${fallbackIp}`;
@@ -30,7 +28,7 @@ async function sha256Hex(value: string): Promise<string> {
     .join("");
 }
 
-// fail-open。Retry-After = windowSec (INCR ごとに EXPIRE するので残り TTL は常に windowSec): CONTEXT.md「試行枠」
+// fail-open。Retry-After は INCR ごとに EXPIRE するため残り TTL が常に windowSec になる。
 type RateLimitInput = Omit<RateLimitOptions, "keyFn"> & { key: string };
 
 export const rateLimitProgram = Effect.fn("rateLimit.check")(function* (input: RateLimitInput) {

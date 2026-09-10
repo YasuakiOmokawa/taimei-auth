@@ -6,7 +6,6 @@ import { captureCause } from "./sentry";
 
 export type AttemptBudgetVerdict = "accepted" | "exhausted" | "unavailable";
 
-// 観測は残す (計数不能の継続は Sentry でしか気付けない)
 export const spendAttemptBudget = Effect.fn("attemptBudget.spend")(function* (input: {
   key: string;
   windowSeconds: number;
@@ -21,8 +20,7 @@ export const spendAttemptBudget = Effect.fn("attemptBudget.spend")(function* (in
         captureCause({ tags: { component: input.component } })(failure).pipe(Effect.as(null)),
       ),
     );
-  // 不変条件 (成功した INCR は必ず 1 以上) の正本は redis.ts の toRateWindowResult で、契約逸脱は
-  // そこで RedisError になる。ここは第 2 線として 0 / NaN を accepted に写さず unavailable に倒す。
+  // 第 2 線: 契約逸脱の 0 / NaN を accepted に写さず unavailable に倒す (throw の正本は redis.ts)
   if (!counted || !(counted.count >= 1)) return "unavailable" as const;
   return counted.count > input.maxAttempts ? ("exhausted" as const) : ("accepted" as const);
 });

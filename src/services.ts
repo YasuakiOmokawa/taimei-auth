@@ -1,6 +1,5 @@
 import { isLocalEnvironment } from "./env";
 
-// 検証ポリシー: docs/adr/0003-redirect-url-allowlist-policy.md
 export type ServiceName = "taimei" | "accounts";
 
 export interface TaimeiServiceConfig {
