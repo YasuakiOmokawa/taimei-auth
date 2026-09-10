@@ -1,6 +1,5 @@
 import { orgCodeLabelJa, type OrgCode } from "@core/company/org-code";
 
-// 事業形態の radio fieldset。3 画面が同一 markup を保ち、第 3 の事業形態を足す時の追随を 1 箇所にする。
 export const OrgCodeField = ({
   value,
   onChange,
@@ -13,7 +12,6 @@ export const OrgCodeField = ({
   disabled?: boolean;
   // 同一ページ内に複数フォームが共存しても radio group が混線しないよう呼び出し側が一意に付ける
   name: string;
-  // 既定値を先頭に見せたい画面 (事業所追加は法人が既定) 向けの表示順
   order?: readonly OrgCode[];
 }) => (
   <fieldset className="space-y-2">

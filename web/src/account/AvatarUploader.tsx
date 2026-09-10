@@ -12,7 +12,6 @@ type Props = {
   fallbackName: string;
 };
 
-// アップロード完了と同時に永続化する (form 保存と分離しない)。詳細: docs/adr/0008-avatar-immediate-persist.md
 export const AvatarUploader = ({ initialImageUrl, fallbackName }: Props) => {
   const [imageUrl, setImageUrl] = useState(initialImageUrl);
   const [uploading, setUploading] = useState(false);

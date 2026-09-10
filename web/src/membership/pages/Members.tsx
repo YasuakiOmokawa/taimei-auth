@@ -29,7 +29,6 @@ export const Members = () => {
   const companyId = currentMembership?.company_id ?? null;
   const canManage = isAtLeast(currentMembership?.role ?? "", "ADMIN");
   const isOwner = currentMembership?.role === "OWNER";
-  // OWNER 昇格の選択肢は OWNER のみに出す。ADMIN には出さない
   const assignableRoles: readonly Role[] = isOwner
     ? ["MEMBER", "ADMIN", "OWNER"]
     : ["MEMBER", "ADMIN"];
@@ -43,7 +42,7 @@ export const Members = () => {
   const [submitting, setSubmitting] = useState(false);
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
 
-  // 2 つの一覧は個別に反映する (片方が転んでも捨てない)。招待一覧は ADMIN 未満だと 403 なので叩かない
+  // 招待一覧は ADMIN 未満だと 403 なので叩かない
   const refresh = useCallback(() => {
     if (!companyId) return Promise.resolve();
     return Promise.all([
@@ -113,7 +112,6 @@ export const Members = () => {
       .finally(() => setBusyUserId(null));
   };
 
-  // ConfirmDestructiveDialog の onConfirm 契約: promise を返し、失敗の通知はここ (呼び出し側) が出す。
   const handleRemove = (targetUserId: string): Promise<void> => {
     if (!companyId || busyUserId) return Promise.resolve();
     setBusyUserId(targetUserId);
@@ -163,7 +161,6 @@ export const Members = () => {
         <ul className="space-y-2">
           {members.map((m) => {
             const isSelf = m.user_id === selfUserId;
-            // 自分自身は操作 (役割変更・削除) の対象に出さない (誤操作防止)
             const canOperateThisMember =
               canManage && !isSelf && (isOwner || !requiresOwnerProtection(m.role));
             return (

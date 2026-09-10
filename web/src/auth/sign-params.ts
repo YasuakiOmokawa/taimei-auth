@@ -1,9 +1,7 @@
 import { acceptInvitationPath } from "@core/invitation/accept-path";
 import { signInParamsObjectSchema } from "@core/sign-in-params";
 
-// signInParamsSchema のキーのみ通す (error=signin_failed 等の stale state を相互リンクで持ち込ませない)。
-// キー集合は schema の shape から導出し、schema にキーを足した時にここだけ取り残されて
-// その param が相互リンク経由で silent に消えるのを防ぐ。
+// 相互リンクで error=signin_failed 等の stale な param を持ち込ませないための allowlist
 const ALLOWLIST = Object.keys(signInParamsObjectSchema.shape);
 
 export const buildSignParams = (searchParams: URLSearchParams): string => {
@@ -15,8 +13,6 @@ export const buildSignParams = (searchParams: URLSearchParams): string => {
   return out.toString();
 };
 
-// 招待経由は Magic Link click 後に accept-invitation へ着地させ membership を作る。
-// redirect_url へ直行すると membership が作られないまま signup/company へ流れ、招待受諾フローから
-// 脱落する。SignIn / SignUp どちらのフォームから送信しても着地先はここに揃える。
+// redirect_url へ直行すると membership が作られないまま signup/company へ流れ招待受諾から脱落する
 export const invitationAcceptCallbackUrl = (invitationToken: string): string =>
   `${window.location.origin}${acceptInvitationPath(invitationToken)}`;

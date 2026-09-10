@@ -14,11 +14,9 @@ import { Separator } from "../../shared/ui/separator";
 import { OrgCodeField } from "../OrgCodeField";
 import { deleteCompany, updateCompany, type OrgCode } from "../company-api";
 
-// 事業所設定 (OWNER のみ)。name / org_code 編集 + 事業所削除。
 export const CompanySettings = () => {
   const { currentMembership, memberships, loading, refresh } = useCurrentCompany();
   const isOwner = currentMembership?.role === "OWNER";
-  // 最後の所属事業所を削除すると actor 自身が orphan として連動削除される (ADR-0010 D3)。
   const isLastCompany = memberships.length <= 1;
 
   const [name, setName] = useState("");
@@ -26,8 +24,6 @@ export const CompanySettings = () => {
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
 
-  // form 初期値の流し込みは「対象 company が変わった時のみ」。company_id を依存にすることで、
-  // 保存後の refresh で currentMembership 参照が差し替わっても編集中の入力を上書きしない。
   const currentCompanyId = currentMembership?.company_id ?? null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: company 切替時のみ prefill する意図
   useEffect(() => {
@@ -75,8 +71,6 @@ export const CompanySettings = () => {
       .finally(() => setSubmitting(false));
   };
 
-  // 削除後は一覧へ SPA 遷移してから通知する (Companies の handleLeave と同じ形)。遷移を refresh の成否に
-  // 依存させない。最後の事業所削除は actor 自身の連動削除 = AuthChange のため full reload で抜ける (ADR-0010 D3)。
   const handleDelete = () =>
     deleteCompany(companyId)
       .then(({ accountDeleted }) => {

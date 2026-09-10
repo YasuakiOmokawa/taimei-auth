@@ -34,7 +34,6 @@ export const Companies = () => {
       .finally(() => setBusyCompanyId(null));
   };
 
-  // 唯一の OWNER で抜けられなかった (409) company。委譲導線を出すため記録する。
   const [soleOwnerCompanyId, setSoleOwnerCompanyId] = useState<string | null>(null);
 
   const handleLeave = (m: Membership) => {
@@ -57,7 +56,6 @@ export const Companies = () => {
       })
       .catch((err) => {
         if (err instanceof RequestJsonError && err.status === 409) {
-          // toast にしない: 「オーナーを委譲」ボタンの出現理由として導線と一緒に残す (shared/notify.tsx の経路規則)
           setSoleOwnerCompanyId(m.company_id);
         } else {
           notifyError("事業所から抜けられませんでした。");

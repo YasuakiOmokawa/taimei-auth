@@ -18,7 +18,6 @@ import { SocialSignInSection } from "../SocialSignInSection";
 import { buildSignParams } from "../sign-params";
 import { useSignPage } from "../use-sign-page";
 
-// 状態機械は useSignPage、SNS 区画は SocialSignInSection を SignIn と共有する (ADR-0007: 画面のみ分離)。
 export const SignUp = () => {
   const [searchParams] = useSearchParams();
   const [name, setName] = useState("");

@@ -1,6 +1,5 @@
 import { Loader2, ShieldCheck } from "lucide-react";
 import { Link } from "react-router-dom";
-// 純描画 view を bun test (cwd = repo root) から読むため相対 import にする。
 import { signInLandingUrl } from "../auth/auth-redirect";
 import { Button } from "../shared/ui/button";
 import {
@@ -90,7 +89,6 @@ export function MfaChallengeView({ view, entry }: MfaChallengeFlow) {
                 </Link>
               </p>
 
-              {/* 失敗文言を残さない規律は use-mfa-challenge-flow.ts の errorCode 導出が持つ */}
               {entry.errorMessage && (
                 <p id={entry.errorId} role="alert" className="text-sm text-destructive">
                   {entry.errorMessage}

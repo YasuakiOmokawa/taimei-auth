@@ -6,7 +6,6 @@ import { CompanySwitcher } from "../company/CompanySwitcher";
 import { Toaster } from "../shared/notify";
 import { cn } from "../shared/utils";
 
-// mobile 対応 (Sheet 等) は未実装で、現時点は固定 sidebar の最小構成。
 const companyNav = [
   { to: "/account/companies", icon: Building2, label: "所属事業所", end: false },
   { to: "/account/members", icon: Users, label: "メンバー", end: false },
@@ -65,7 +64,7 @@ export const AccountLayout = () => {
         </div>
       </main>
 
-      {/* /auth に sonner を配らないため App でなくここにマウントする (shared/notify.tsx) */}
+      {/* /auth に sonner を配らないため App でなくここにマウントする */}
       <Toaster />
     </div>
   );

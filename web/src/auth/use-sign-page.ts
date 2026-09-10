@@ -8,13 +8,8 @@ import { invitationAcceptCallbackUrl } from "./sign-params";
 
 type SignSubmitting = "magic-link" | "github" | null;
 
-// SignIn / SignUp が共有する画面状態機械 (ADR-0007 の「画面のみ分離」を保つ)。params 解析 → 招待分岐 →
-// 送信を 1 箇所にし、片画面だけ直して招待経路が壊れる退行 (PR #116 と同型) を防ぐ。差分は各 JSX が持つ。
-export function useSignPage(options: {
-  // SignUp のみ true: signup 完了後の着地先を sign_up_url で別指定できる (未指定なら redirect_url)
-  preferSignUpUrl?: boolean;
-  githubErrorFallback: string;
-}) {
+// 片画面だけ直して招待経路が壊れる退行 (PR #116 と同型) を防ぐため 2 画面で共有する
+export function useSignPage(options: { preferSignUpUrl?: boolean; githubErrorFallback: string }) {
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [magicLinkSent, setMagicLinkSent] = useState(false);
@@ -26,7 +21,6 @@ export function useSignPage(options: {
     [searchParams],
   );
 
-  // 招待経由は着地先を accept-invitation に揃える (理由: auth/sign-params.ts の invitationAcceptCallbackUrl)。
   const invitationToken = parseResult.success ? parseResult.data.invitation_token : undefined;
   const isInvitation = invitationToken !== undefined;
   const callbackUrl = !parseResult.success
@@ -68,7 +62,6 @@ export function useSignPage(options: {
   };
 
   return {
-    // false のときページは /auth/error へ replace して null を返す (handler 群は呼ばれない前提)
     paramsValid: parseResult.success,
     serviceDisplayName: parseResult.success
       ? TAIMEI_SERVICES[parseResult.data.service_name as ServiceName].name

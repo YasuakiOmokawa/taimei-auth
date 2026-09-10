@@ -8,7 +8,6 @@ import { Separator } from "../../shared/ui/separator";
 type SessionList = Awaited<ReturnType<typeof authClient.listSessions>>["data"];
 type SessionItem = NonNullable<SessionList>[number];
 
-// 端末ごとに 1 回だけ作って再利用 (per-render の new Intl.DateTimeFormat 生成を回避)。
 const expiresAtFormatter = new Intl.DateTimeFormat("ja-JP", {
   dateStyle: "medium",
   timeStyle: "short",

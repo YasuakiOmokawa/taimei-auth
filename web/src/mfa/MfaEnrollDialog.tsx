@@ -19,8 +19,6 @@ import { describeMfaChallengeError, useMfaCodeEntry } from "./use-mfa-code-entry
 
 const CODE_INPUT_ID = "mfa-enroll-code";
 
-// 登録は「読み取る → 確認コードで検証 → リカバリーコードを控える」の 3 段で、戻れるのは検証まで。
-// 有効化後は server から読み戻せないため、この state に載っている間だけが本人に渡せる唯一の機会。
 type EnrollState =
   | { step: "starting" }
   | { step: "scan"; enrollment: MfaEnrollment }
@@ -28,7 +26,7 @@ type EnrollState =
   | { step: "recoveryCodes"; recoveryCodes: string[] }
   | { step: "failed"; message: string };
 
-// QR を読めない端末の唯一の登録手段。URI 形式が想定外でも QR 側は出せるよう null に倒す。
+// QR を読めない端末の唯一の登録手段。URI が想定外でも QR 側は出せるよう null に倒す。
 const readTotpSecret = (totpUri: string): string | null =>
   URL.canParse(totpUri) ? new URL(totpUri).searchParams.get("secret") : null;
 
@@ -71,8 +69,7 @@ const CopyButton = ({ value, label }: { value: string; label: string }) => {
   );
 };
 
-// QR 描画は開いた時にしか要らないため動的 import で entry chunk から外す (方針の正本: shared/notify.tsx)。
-// 取得に失敗しても secret の手入力で登録は完了できるので、描画を諦めて案内に倒す。
+// 取得に失敗しても secret の手入力で登録は完了できるため、描画を諦めて案内に倒す。
 const TotpQrCode = ({ totpUri }: { totpUri: string }) => {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -125,8 +122,7 @@ type Props = {
 export const MfaEnrollDialog = ({ onEnabled, trigger }: Props) => {
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<EnrollState>({ step: "starting" });
-  // 登録途中の再 enroll に server が同じ内容を返すこと (正本: ADR-0013 §8) を使った表示 cache。ずれは
-  // 有効化時の enrollment_changed で検知され、ログアウト・アカウント切替は full reload なので漏れない。
+  // 登録途中の再 enroll に server が同じ内容を返すこと (ADR-0013) を使った表示 cache。
   const [resumableEnrollment, setResumableEnrollment] = useState<MfaEnrollment | null>(null);
 
   const entry = useMfaCodeEntry({
@@ -140,8 +136,7 @@ export const MfaEnrollDialog = ({ onEnabled, trigger }: Props) => {
           setState({ step: "recoveryCodes", recoveryCodes });
         })
         .catch((error: unknown) => {
-          // cache を保持したままだと開き直しても古い登録を再表示して 409 を繰り返す。破棄すれば次の
-          // 開き直しが enroll し直し、文言「もう一度登録を開始してください」の操作が UI 上で成立する。
+          // cache を保持したままだと開き直しても古い登録を再表示して 409 を繰り返す。
           if (mfaErrorCodeOf(error) === "enrollment_changed") {
             setResumableEnrollment(null);
           }
@@ -179,7 +174,6 @@ export const MfaEnrollDialog = ({ onEnabled, trigger }: Props) => {
     }
 
     setOpen(false);
-    // 有効化が確定した後に閉じた時だけ再取得する。検証前に離脱した場合はまだ無効のまま。
     if (state.step === "recoveryCodes") {
       void notifyAfterRefresh(onEnabled, {
         done: "多要素認証 (MFA) を有効にしました。",

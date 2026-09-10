@@ -25,8 +25,7 @@ type Props = {
   trigger: ReactNode;
 };
 
-// ConfirmDestructiveDialog を使わない — あちらは onConfirm の成否によらず閉じる契約で、コードの
-// 打ち間違いでも閉じて入力をやり直させることになる。見た目と busy 中の扱いは揃え、閉じる条件だけ変える。
+// ConfirmDestructiveDialog を使わない: あちらは失敗でも閉じる契約で、打ち間違いでも入力をやり直させる。
 export const MfaDisableDialog = ({ onDisabled, trigger }: Props) => {
   const [open, setOpen] = useState(false);
 
