@@ -28,7 +28,6 @@ const acceptInvitationBody = z
   .object({ invitation_token: z.string().min(1).max(256) })
   .transform((d) => ({ token: d.invitation_token }));
 
-// GET メンバー一覧 (所属メンバーなら誰でも閲覧可)
 accountInvitation.get("/api/account/companies/:companyId/members", (c) =>
   runRoute(
     c,
@@ -51,7 +50,6 @@ accountInvitation.get("/api/account/companies/:companyId/members", (c) =>
   ),
 );
 
-// GET 招待中 (PENDING) 一覧 (OWNER / ADMIN のみ)
 accountInvitation.get("/api/account/companies/:companyId/invitations", (c) =>
   runRoute(
     c,
@@ -73,8 +71,6 @@ accountInvitation.get("/api/account/companies/:companyId/invitations", (c) =>
   ),
 );
 
-// POST 招待作成 (OWNER / ADMIN のみ、OWNER 招待は OWNER のみ)。判定順は requireInvite entry、idempotency /
-// rate-limit / insert + audit は createInvitation use-case。magic-link 送信は handler が post-commit で行う。
 accountInvitation.post("/api/account/companies/:companyId/invitations", (c) =>
   runRoute(
     c,
@@ -88,8 +84,7 @@ accountInvitation.post("/api/account/companies/:companyId/invitations", (c) =>
       const result = yield* createInvitation({ actorUserId: actor.id, companyId, email, role });
       const invitationRow = result.invitation;
 
-      // commit 後に送信する (DB INSERT 失敗時は無送信)。送信結果は response に載せないため、Resend の応答を
-      // 待たず background へ逃がして 200 を即返す (Workers は ctx.waitUntil で完走保証、src/background.ts)。
+      // commit 後に background へ逃がして 200 を即返す (DB INSERT 失敗時は無送信)。
       const callbackURL = `${getAppUrl()}${acceptInvitationPath(invitationRow.token)}`;
       const authApi = yield* AuthApi;
       const background = yield* Background;
@@ -116,7 +111,6 @@ accountInvitation.post("/api/account/companies/:companyId/invitations", (c) =>
   ),
 );
 
-// POST 招待取消 (OWNER / ADMIN のみ)。tx / audit は revokeInvitation use-case が所有。
 accountInvitation.post("/api/account/companies/:companyId/invitations/:invitationId/revoke", (c) =>
   runRoute(
     c,
@@ -130,8 +124,7 @@ accountInvitation.post("/api/account/companies/:companyId/invitations/:invitatio
   ),
 );
 
-// POST 招待受諾。strict email match (invitation.email === session.email) で token 盗難の phishing を防ぐ。
-// 判定順は entry (requireInvitationAccept)、accept mutation は acceptInvitation use-case が tx 所有で行う。
+// strict email match (invitation.email === session.email) で token 盗難の phishing を防ぐ。
 accountInvitation.post("/api/account/accept-invitation", (c) =>
   runRoute(
     c,

@@ -8,14 +8,9 @@ import { captureCause } from "../sentry";
 import { signInParamsSchema } from "../sign-in-params";
 import { runMiddleware } from "./run-route";
 
-// /auth/signup/company は意図的に含めない。含めると membership 0 件 user が同 path へ無限 redirect する。
-// 事業所登録 page 自身の guard は SPA 側が担う。
+// /auth/signup/company は含めない。含めると membership 0 件 user が同 path へ無限 redirect する。
 const AUTH_ENTRY_PATHS = new Set(["/auth/", "/auth/signup"]);
 
-// 認証後の redirect 先で「事業所未確定」(membership 0 件) なら /auth/signup/company に強制誘導する。
-// /auth/* 全体に mount されるため、対象 path と cookie の同期判定は runtime に入る前に済ませ、静的 asset の
-// request に fiber を割かない。本体は Effect program (Auth service 経由)、runMiddleware が undefined → next() /
-// Response → 短絡に写像する。
 export const authEntryRedirect = (c: Context, next: Next) => {
   const headers = c.req.raw.headers;
   if (!AUTH_ENTRY_PATHS.has(c.req.path) || !getSessionCookie(headers)) return next();
@@ -25,8 +20,7 @@ export const authEntryRedirect = (c: Context, next: Next) => {
 const passThrough = (failure: { readonly cause: unknown }) =>
   captureCause({ tags: { handler: "authEntryRedirect" } })(failure).pipe(Effect.as(undefined));
 
-// Redis / better-auth / DB の transient 障害は 5xx にせず pass-through (SPA を返す) に倒す。login-shortcut と同じ
-// fail-open 方針で、session-aware redirect は利便で認可ではない。Sentry には warning で残す。
+// transient 障害は 5xx でなく pass-through に倒す (session-aware redirect は利便で認可ではない)。
 export const authEntryRedirectProgram = Effect.fn("handlers.authEntryRedirect")(
   function* (c: Context) {
     const headers = c.req.raw.headers;
@@ -38,7 +32,6 @@ export const authEntryRedirectProgram = Effect.fn("handlers.authEntryRedirect")(
     );
     if (!params.success) return undefined;
 
-    // invitation 経由 (Phase B) は accept handler に直接 redirect (会社作成 UI を skip)。
     if (params.data.invitation_token) {
       const inviteUrl = new URL("/auth/signup/accept-invitation", c.req.url);
       inviteUrl.searchParams.set("invitation_token", params.data.invitation_token);

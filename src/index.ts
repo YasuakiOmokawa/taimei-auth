@@ -9,14 +9,13 @@ import { parseTrustedProxyHops } from "./request-context";
 
 initBunSentry();
 
-// production で AUTH_SERVICE_KEY 未設定なら起動拒否 (dev / test は warn のみで通す)。
+// 未設定のまま起動すると /rpc/* の service key 検査が skip され誰でも叩けるため production では止める。
 if (process.env.APP_ENV === "production" && !process.env.AUTH_SERVICE_KEY) {
   console.error("FATAL: AUTH_SERVICE_KEY is required in production.");
   process.exit(1);
 }
 
-// 未設定を既定値で埋めると client IP が "unknown" に潰れ、audit も IP 軸 rate-limit も無価値化する。
-// Workers 本番はこの entry を通らないため設定不要 (request-context.ts)。
+// 既定値で埋めると client IP が "unknown" に潰れ、audit も IP 軸 rate-limit も無価値化する。
 const trustedProxyHopsConfigured =
   parseTrustedProxyHops(process.env.AUTH_TRUSTED_PROXY_HOPS) !== null;
 if (process.env.APP_ENV === "production" && !trustedProxyHopsConfigured) {
@@ -27,7 +26,6 @@ if (process.env.APP_ENV === "production" && !trustedProxyHopsConfigured) {
 const WEB_DIST = "./web/dist";
 const spaFallback = buildSpaFallbackHandler(`${WEB_DIST}/index.html`);
 
-// `app` は test (routes-integration.test.ts) から import するため named export する。
 export const app = buildApp({
   mountStatic: (honoApp) => {
     honoApp.use(
@@ -42,13 +40,9 @@ export const app = buildApp({
   },
 });
 
-// compose / CI は healthcheck で redis 先行起動済みのため通常は数十 ms で返る。
 const REDIS_BOOT_TIMEOUT_MS = 10_000;
 
-// session 実体と rate-limit が Redis 前提のため、疎通不能なら「起動はしたが認証できない」プロセスを
-// 作らず boot で止める。timeout による打ち切りは必須 — redis 断のとき ping は resolve しない。
-// Redis service の ping は /health 向けに 2s で切るため、10s 待つ boot は生の pingRedis に timeout を掛ける
-// (ADR-0017 Decision の非同期項「Bun 起動の Redis ping 10s」)。
+// timeout による打ち切りは必須 — redis 断のとき ping は resolve しない。
 const redisReachable = await getRuntime().runPromise(
   Effect.promise(() => pingRedis()).pipe(
     Effect.timeout(REDIS_BOOT_TIMEOUT_MS),

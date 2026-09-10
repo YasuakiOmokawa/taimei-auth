@@ -25,8 +25,6 @@ const transferOwnershipBody = z
   .object({ to_user_id: z.string().min(1).max(64) })
   .transform((d) => ({ toUserId: d.to_user_id }));
 
-// POST 事業所切替。target の active membership を switchCompany use-case が tx 内で再検証し
-// last_used_company_id を更新する。TOCTOU / 短絡 / audit は use-case 側 (ADR-0012)。
 accountMembership.post("/api/account/current-company", (c) =>
   runRoute(
     c,
@@ -43,8 +41,6 @@ accountMembership.post("/api/account/current-company", (c) =>
   ),
 );
 
-// POST role 変更。OWNER≥1 保証 / no-op 短絡 / audit は changeRole use-case が持ち、
-// 401→400→403→404→403 の判定順は entry (requireRoleChange) が担う。
 accountMembership.post("/api/account/companies/:companyId/members/:targetUserId/role", (c) =>
   runRoute(
     c,
@@ -69,8 +65,6 @@ accountMembership.post("/api/account/companies/:companyId/members/:targetUserId/
   ),
 );
 
-// POST メンバー削除 (除名 / 退会)。認可順は entry (requireRemoval)、mutation (membership 削除 + 所属
-// 0 件なら account 連動削除 + OWNER≥1 保証) は removeMember use-case が担う (ADR-0010 D2)。
 accountMembership.post("/api/account/companies/:companyId/members/:targetUserId/remove", (c) =>
   runRoute(
     c,
@@ -88,14 +82,11 @@ accountMembership.post("/api/account/companies/:companyId/members/:targetUserId/
         companyId,
         targetRole,
       });
-      // 本人が最後の所属を退会した場合 account_deleted=true。client はログアウト遷移する (UX は後続 PR)。
       return c.json({ ok: true, account_deleted: result.accountDeleted });
     }),
   ),
 );
 
-// POST オーナー委譲 (OWNER のみ)。target 昇格 + actor 降格を 1 tx で行い、「唯一の OWNER が抜けたい」
-// 場合の先行導線になる (詳細: PR #55 → #63)。判定順は entry (requireTransferOwnership)。
 accountMembership.post("/api/account/companies/:companyId/transfer-ownership", (c) =>
   runRoute(
     c,

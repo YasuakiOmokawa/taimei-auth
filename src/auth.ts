@@ -16,19 +16,17 @@ import { redisStorage } from "./redis";
 
 const authCookieDomain = process.env.AUTH_COOKIE_DOMAIN;
 
-// Workers は per-request env のため module ロード時でなく initAuth() で構築する (実 Pool は request ごとに供給、ADR-0011)。
+// Workers は per-request env のため module ロード時でなく initAuth() で構築する。
 function buildAuth() {
   return betterAuth({
     baseURL: process.env.AUTH_SERVICE_URL,
 
-    // 自前 MFA enroll の issuer 供給源 (src/mfa/totp/wiring.ts)。enroll と再表示で同じ issuer を
-    // 使うことが認証アプリのエントリが割れない条件。
+    // appName は MFA の TOTP issuer。enroll と再表示で同じ値でないと認証アプリのエントリが割れる。
     appName: getAppName(),
 
     secondaryStorage: redisStorage,
 
-    // local の Bun e2e のみ verification を DB にも保存 (postgres から token を取得するため)。
-    // Workers は DB token 消費が hang する (ADR-0011) ため false にし secondaryStorage に保存する。
+    // Workers は DB の verification token 消費が hang するため local Bun e2e のときだけ true にする。
     verification: {
       storeInDatabase: isBunRuntime() && isLocalEnvironment(),
     },
@@ -40,12 +38,7 @@ function buildAuth() {
 
     trustedOrigins: getTrustedOrigins(),
 
-    // better-auth の router は processRequest 内の throw を握って 500 にし Hono にも adapter にも届かない
-    // (dist/api/index.mjs の onError)。ここに来るのは hook / endpoint / middleware の非 APIError の throw と、router
-    // middleware (originCheck) の APIError。endpoint 内で throw した APIError は 5xx でも dispatch が Response に変換して
-    // 来ない。onRequest 段 (rate limiter) の throw は auth.handler の reject になるため src/app.ts の mount が拾う。
-    // 4xx の APIError は意図した wire failure。戻りは await されないので同期で完結させ runtime は引かない。
-    // throw: true は Hono 既定の 500 になるだけで Sentry に届かず Set-Cookie 合流も失う。
+    // better-auth の router は processRequest 内の throw を握って 500 にし Hono にも adapter にも届かない。
     onAPIError: {
       onError: (error) => {
         if (isAPIError(error) && error.statusCode < 500) return;
@@ -62,19 +55,14 @@ function buildAuth() {
 
     user: {
       additionalFields: {
-        // secondaryStorage payload に revision を含めるための宣言。実際の ++ は
-        // drizzle/manual/0001_user_revision_triggers.sql の DB trigger に閉じる (input: false で client 不可)。
+        // ++ は drizzle/manual/0001_user_revision_triggers.sql の DB trigger に閉じる (ここは宣言のみ)。
         revision: { type: "number", required: true, defaultValue: 0, input: false },
-        // user の現在事業所。VerifySession が DB から fresh 読みして SDK SessionData.companyId に公開する。
-        // input: false で書き換えを封じ、更新は CreateCompany / SetCurrentCompany handler 経由のみ。
         lastUsedCompanyId: { type: "string", required: false, input: false },
       },
-      // SPA DangerZone (authClient.deleteUser) の経路 (PR #55 → #63)。beforeDelete で「唯一の OWNER の
-      // ACTIVE 事業所が残っていないか」を検証し中断する (RPC DeleteUser handler と二重防御)。
+      // RPC の DeleteUser handler と二重防御 (SPA DangerZone は better-auth のこの経路を通る)。
       deleteUser: {
         enabled: true,
         beforeDelete: async (user) => {
-          // better-auth の callback は Promise / throw 規約の境界。判定は runtime で走らせ、結果を APIError に戻す。
           // runtime は AuthApiLive 経由で本 module を import するため、循環を避けて呼び出し時に読み込む。
           const { getRuntime } = await import("./runtime");
           const blocking = await getRuntime().runPromise(
@@ -94,7 +82,6 @@ function buildAuth() {
       enabled: false,
     },
 
-    // env 不揃い時は GitHub OAuth を無効化 (local では Magic Link を主導線にしてサーバ起動を妨げない)
     socialProviders: {
       ...(process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET
         ? {
@@ -109,8 +96,7 @@ function buildAuth() {
     plugins: [
       magicLink({
         sendMagicLink: async ({ email, url }) => {
-          // better-auth callback は throw 契約 (ADR-0017 の物理境界)。runtime は import 環
-          // (runtime → auth-service → auth) を避けるため関数内で lazy import する。
+          // runtime → auth-service → auth の import 環を避けるため関数内で lazy import する。
           const { getRuntime } = await import("./runtime");
           await getRuntime().runPromise(dispatchMagicLink(email, url));
         },
@@ -127,8 +113,7 @@ function buildAuth() {
         enabled: true,
         maxAge: 5 * 60,
       },
-      // password を持たない構成のため sensitive 操作の再認証が不可能で、freshAge=0 にしないと退会が
-      // 常に SESSION_NOT_FRESH で弾かれる。全 sensitive 操作の fresh 保護を切るので password 有効化時は再検討。
+      // password 無しでは再認証できず退会が常に SESSION_NOT_FRESH になるため 0。password 有効化時は再検討。
       freshAge: 0,
     },
 
@@ -141,7 +126,6 @@ function buildAuth() {
   });
 }
 
-// ESM live binding: initAuth 後の値を import { auth } 側 (handler / rpc 群) が参照する。
 export let auth: ReturnType<typeof buildAuth>;
 
 export function initAuth(): void {

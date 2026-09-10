@@ -9,7 +9,6 @@ import { Transaction } from "../transaction";
 import { toProtoUser, userResponse } from "./mappers";
 import { RpcError, runRpc } from "./run-rpc";
 
-// 各 method は Effect program を runRpc (Connect 側の唯一の写像点) で走らせる (ADR-0017)。
 export function registerUserService(router: ConnectRouter) {
   router.service(UserService, {
     findUserByEmail: (req) =>
@@ -25,7 +24,6 @@ export function registerUserService(router: ConnectRouter) {
     updateUser: (req) =>
       runRpc(
         Effect.gen(function* () {
-          // proto の clearImage flag → null 変換は handler 責務 (repository は drizzle 列のまま受ける)。
           const updates: { name?: string; image?: string | null } = {};
           if (req.name !== undefined) updates.name = req.name;
           if (req.clearImage) {
@@ -52,9 +50,7 @@ export function registerUserService(router: ConnectRouter) {
     deleteUser: (req) =>
       runRpc(
         Effect.gen(function* () {
-          // 唯一の OWNER の ACTIVE 事業所が残っていると退会不可 (課金責任者不在を防ぐ。詳細: PR #55 → #63)。
           // pre-check と delete を同一 tx に置き、check 後に actor が OWNER 昇格される race を避ける。
-          // tx の Transport 所有は ADR-0012 の Scope out のまま。
           const memberships = yield* MembershipRepo;
           const tx = yield* Transaction;
           const row = yield* tx.run(

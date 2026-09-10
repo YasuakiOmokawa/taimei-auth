@@ -18,7 +18,6 @@ export async function runRoute(c: Context, program: RouteEffect<Response>): Prom
   return causeToResponse(c, exit.cause, "runRoute");
 }
 
-// middleware 版。program が Response を返せば短絡、undefined なら next() に進む。
 export async function runMiddleware(
   c: Context,
   next: Next,
@@ -40,7 +39,6 @@ function causeToResponse(c: Context, cause: Cause.Cause<RouteError>, adapter: Ad
     extra: { method: c.req.method, path: c.req.path },
   });
   const res = failure ? wireErrorResponse(failure) : internalErrorResponse();
-  // program が c.header() で staged した header (login-shortcut の Cache-Control / Vary 等) を error 応答にも
-  // 載せる。c.newResponse は staged header に res の header と status を重ねる (Hono 既定 errorHandler と同じ形)。
+  // program が c.header() で staged した header を error 応答にも載せる (c.newResponse が staged に重ねる)。
   return c.newResponse(res.body, res);
 }
