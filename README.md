@@ -110,7 +110,7 @@ DB に直接つなぐ one-shot / 定期スクリプト。compose 環境では `d
 
 | スクリプト | 用途 |
 |---|---|
-| `sweep-abandoned-signups.ts` | 登録途中放棄アカウントの定期 sweep (dry-run → `--execute` の 2 段階)。詳細: [ADR-0010](./docs/adr/0010-company-account-deletion-lifecycle.md) |
+| `sweep-abandoned-signups.ts` | 登録途中放棄アカウントの定期 sweep (dry-run → `--execute` の 2 段階)。デプロイ側のスケジューラから日次実行する想定 (本 repo はスケジューラを持たない)。TTL は `SWEEP_TTL_HOURS` env で上書き可 (既定 24h)。詳細: [ADR-0010](./docs/adr/0010-company-account-deletion-lifecycle.md) |
 | `backfill-orphan-cleanup.ts` | ghost membership と orphan アカウントの one-shot 掃除 (同 2 段階)。詳細: [ADR-0010](./docs/adr/0010-company-account-deletion-lifecycle.md) |
 | `disable-user-mfa.ts` | 多要素認証 (MFA) のロックアウト救済。userId 指定で当該ユーザーの MFA を強制的に無効化する |
 

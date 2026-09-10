@@ -161,7 +161,7 @@ better-auth が管理する認証状態。Cookie (`.taimei-code.com` ドメイ�
 _Avoid_: 認証状態 (より広義), Cookie (識別子に過ぎない)
 
 **session cookie**:
-**session** を識別する署名付き cookie (`better-auth.session_token`、HTTPS では `__Secure-` 接頭辞)。発行者は 2 つ: 通常ログイン (better-auth) と **MFA チャレンジ** 通過後の発行 (`src/mfa/gateway.ts`)。Set-Cookie に載る値は両者とも percent-encoding 済みの署名付き値で、属性 (Max-Age / Path / Domain / HttpOnly / Secure / SameSite) も 2 発行者で同一。`@taimei-code/auth-client` と consumer app は値の中身を解釈せず、decode も encode もしない。値の形式の詳細と固定する test は `src/mfa/gateway.ts` の `issueSessionFor` 直前のコメントを正本とする。
+**session** を識別する署名付き cookie (`better-auth.session_token`、HTTPS では `__Secure-` 接頭辞)。発行者は 2 つ: 通常ログイン (better-auth) と **MFA チャレンジ** 通過後の発行 (`src/mfa/gateway.ts`)。Set-Cookie に載る値は両者とも percent-encoding 済みの署名付き値で、属性 (Max-Age / Path / Domain / HttpOnly / Secure / SameSite) も 2 発行者で同一。`@taimei-code/auth-client` と consumer app は値の中身を解釈せず、decode も encode もしない。値の形式と属性同一性は `src/__tests__/session-cookie-contract.test.ts` が固定する。
 _Avoid_: session token (署名を除いた Redis key の方), session (識別される状態の方)
 
 **sign-out**:

@@ -58,6 +58,7 @@ productionのdomain、Guard、Transportはrepository関数とtransaction helper�
 - `gen/` はcodegen出力として扱い、手動編集しない。
 - webから `@core` として参照されるmoduleはbrowser-safeな依存だけを持つ。
 - fileの冒頭に層・ADR・所属domainの道案内を書かない。層はdirectoryが、判断の正本はADRが言う。残すのはcodeが表現できない外部前提 (runtime / libraryの挙動、security判断) だけにする。
+- コメントは1行に収める。2行要るなら名前・型・正本のどれかが足りていない。
 
 ## test配置
 

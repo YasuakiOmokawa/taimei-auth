@@ -44,7 +44,7 @@ runner へ node_modules を丸ごと COPY しており (`--production` install �
    削除する。既存の biome ban は `packages/auth-client/**` scope のみだったため、root の override
    (`src/**` / `db/**` / `management/**`) に 13 件 + connect-node の `noRestrictedImports` を追加して
    分類を import 時点で強制する。`react` / `react-dom` は src/email の server 実行時
-   描画で必要なため dependencies に残す (理由の詳細コメント: `src/email/client.ts`)
+   描画で必要なため dependencies に残す (dynamic import で実行時に react を引く理由: [ADR-0011](./0011-cloudflare-workers-migration.md)「本番デプロイで発見した workerd 固有 2 点」)
 2. **install stage は manifests を起点に deps / prod-deps へ分岐する**。`manifests` は manifest
    だけ (`package.json` / `bun.lock` / workspace package の `package.json`) を COPY する薄い stage で、
    install layer の cache key を source 編集から切り離す — workspace package を増やす時にここへ
