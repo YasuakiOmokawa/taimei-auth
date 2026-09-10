@@ -8,6 +8,7 @@ import { tryAuthApi } from "../../errors";
 import { Redis } from "../../redis-service";
 import { SentryService } from "../../sentry";
 import { spendAttemptBudget } from "../../attempt-budget";
+import { ChallengeExpired } from "../error-mapping";
 
 // ログインチャレンジの store (Redis 1 key) + 試行枠 + 自前署名 cookie (A-9)。
 // 旧 challenge-store の 3 write 順序・better-call 署名 scheme のハードコピー・完了マーカー形式は
@@ -89,13 +90,14 @@ export const peekLoginChallenge = Effect.fn("mfa.peekLoginChallenge")(function* 
   return challenge ? ({ ...challenge, challengeId } satisfies OpenedLoginChallenge) : null;
 });
 
-// getAndDelete が単回消費を atomic に確定する。false = 並行敗者 or 期限切れ。
+// getAndDelete が単回消費を atomic に確定する (並行敗者と期限切れは ChallengeExpired)。
 // 値の形は発行側しか書かないため存在チェックで足りる (形の検証は peek の担当)。
 export const consumeLoginChallenge = Effect.fn("mfa.consumeLoginChallenge")(function* (
   challengeId: string,
 ) {
-  const raw = yield* (yield* Redis).getAndDelete(challengeKey(challengeId));
-  return { consumed: raw !== null, clearCookie: clearCookieHeaders() };
+  const raw = yield* Redis.use((r) => r.getAndDelete(challengeKey(challengeId)));
+  if (raw === null) return yield* new ChallengeExpired();
+  return clearCookieHeaders();
 });
 
 // 失効指示 cookie は返さない — 呼び出し側は応答を invalid_code のままにする契約 (§9)。

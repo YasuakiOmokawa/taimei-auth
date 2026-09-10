@@ -1,9 +1,9 @@
 import { makeSignature } from "better-auth/crypto";
-import { Clock, Effect } from "effect";
+import { Clock, Effect, Predicate } from "effect";
 import { serialize as serializeSetCookie } from "hono/utils/cookie";
 import { auth } from "../auth";
 import { type AuthApiError, tryAuthApi } from "../errors";
-import { captureCause, type SentryService } from "../sentry";
+import { captureCause } from "../sentry";
 import { ChallengeExpired } from "./error-mapping";
 
 // better-auth (auth.api / auth.$context) への唯一の正規窓口 (縮退後の残置面: ADR-0016)。
@@ -11,36 +11,30 @@ import { ChallengeExpired } from "./error-mapping";
 // 自分の呼び出しで踏まないため)。better-auth は Promise / throw 規約の境界なので、失敗は
 // AuthApiError (cause: unknown) に包んで E channel に載せる (ADR-0017 Decision の boundary error 項)。
 
-// secondaryStorage 構成では session 実体が Redis にしか無いため、これが既存セッション失効の唯一の経路。
-export const revokeOtherSessions = Effect.fn("mfa.revokeOtherSessions")(function* (
-  headers: Headers,
-) {
-  return yield* tryAuthApi(() =>
-    auth.api
-      .revokeOtherSessions({ headers, returnHeaders: true })
-      .then(({ headers: revoked }) => revoked ?? new Headers()),
-  ).pipe(Effect.catchTag("AuthApiError", foldToChallengeExpired));
-});
-
 // better-auth 由来 (body.code 持ち APIError) は fail-closed に challenge_expired へ畳んで観測し、それ以外は boundary
 // error のまま adapter (500 + Sentry) に渡す。写像表は持たない — 発生源の twoFactor プラグインが消えたため。
-const foldToChallengeExpired = (
-  error: AuthApiError,
-): Effect.Effect<never, ChallengeExpired | AuthApiError, SentryService> =>
-  Effect.gen(function* () {
-    if (!hasApiErrorBody(error.cause)) return yield* Effect.fail(error);
-    yield* captureCause({ tags: { component: "mfa-gateway" } })(error);
-    return yield* new ChallengeExpired();
-  });
-
 // body.code を構造的に読む — catch した値が本当に APIError である保証は型に無い (better-auth の isAPIError は
 // body.code を持たない APIError も真にするため、写像対象を「code 付き」に限る現行の判定を保つ)。
-function hasApiErrorBody(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const { body } = error as { body?: unknown };
-  if (typeof body !== "object" || body === null) return false;
-  return typeof (body as { code?: unknown }).code === "string";
-}
+const hasApiErrorCode = (failure: AuthApiError) =>
+  Predicate.isObject(failure.cause) &&
+  Predicate.isObject(failure.cause.body) &&
+  Predicate.isString(failure.cause.body.code);
+
+// secondaryStorage 構成では session 実体が Redis にしか無いため、これが既存セッション失効の唯一の経路。
+export const revokeOtherSessions = Effect.fn("mfa.revokeOtherSessions")(
+  function* (headers: Headers) {
+    return yield* tryAuthApi(() =>
+      auth.api
+        .revokeOtherSessions({ headers, returnHeaders: true })
+        .then(({ headers: revoked }) => revoked ?? new Headers()),
+    );
+  },
+  Effect.catchIf(hasApiErrorCode, (failure) =>
+    captureCause({ tags: { component: "mfa-gateway" } })(failure).pipe(
+      Effect.andThen(new ChallengeExpired()),
+    ),
+  ),
+);
 
 // session cookie の wire 形式の正本 (CONTEXT.md「session cookie」)。値は `<token>.<標準 base64 署名 44 文字>` を
 // percent-encode したもので、better-auth 本体 (better-call の signCookieValue) と同じ形。hono の serialize が

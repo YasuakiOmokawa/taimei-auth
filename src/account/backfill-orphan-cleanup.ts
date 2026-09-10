@@ -20,25 +20,20 @@ type GhostMembershipPurge = { ghostMembershipCount: number; orphanUserIds: strin
 export const backfillOrphanCleanup = Effect.fn("account.backfillOrphanCleanup")(function* (opts: {
   execute: boolean;
 }) {
-  const memberships = yield* MembershipRepo;
-  const companyIds = yield* memberships.findDeletedCompanyIdsWithMemberships();
-  const deletedUserIds = new Set<string>();
-  let membershipsRemoved = 0;
-
-  for (const companyId of companyIds) {
-    const purge = yield* opts.execute
-      ? purgeGhostMemberships(companyId)
-      : previewGhostMembershipPurge(companyId);
-    membershipsRemoved += purge.ghostMembershipCount;
-    for (const userId of purge.orphanUserIds) deletedUserIds.add(userId);
-  }
+  const companyIds = yield* MembershipRepo.use((memberships) =>
+    memberships.findDeletedCompanyIdsWithMemberships(),
+  );
+  const purges = yield* Effect.forEach(companyIds, (companyId) =>
+    opts.execute ? purgeGhostMemberships(companyId) : previewGhostMembershipPurge(companyId),
+  );
+  const deletedUserIds = [...new Set(purges.flatMap((purge) => purge.orphanUserIds))];
 
   return {
     executed: opts.execute,
     companyCount: companyIds.length,
-    membershipsRemoved,
-    accountsDeleted: deletedUserIds.size,
-    deletedUserIds: [...deletedUserIds],
+    membershipsRemoved: purges.reduce((n, purge) => n + purge.ghostMembershipCount, 0),
+    accountsDeleted: deletedUserIds.length,
+    deletedUserIds,
   } satisfies BackfillReport;
 });
 
@@ -47,13 +42,13 @@ const previewGhostMembershipPurge = Effect.fn("account.previewGhostMembershipPur
 ) {
   const memberships = yield* MembershipRepo;
   const members = yield* memberships.findMembersByCompanyId(companyId);
-  const orphanUserIds: string[] = [];
-  for (const m of members) {
-    if ((yield* memberships.countActiveMembershipsByUserId(m.userId)) === 0) {
-      orphanUserIds.push(m.userId);
-    }
-  }
-  return { ghostMembershipCount: members.length, orphanUserIds } satisfies GhostMembershipPurge;
+  const orphans = yield* Effect.filter(members, (m) =>
+    Effect.map(memberships.countActiveMembershipsByUserId(m.userId), (n) => n === 0),
+  );
+  return {
+    ghostMembershipCount: members.length,
+    orphanUserIds: orphans.map((m) => m.userId),
+  } satisfies GhostMembershipPurge;
 });
 
 // DeleteCompany と同じ順 (invitation 失効 → membership 削除 → last_used 付け替え → orphan 削除) を守る。
@@ -70,10 +65,10 @@ const purgeGhostMemberships = Effect.fn("account.purgeGhostMemberships")(functio
       yield* invitations.revokePendingInvitationsOfCompany(companyId, t);
       const removed = yield* memberships.removeMembershipsOfCompany(companyId, t);
       yield* users.reassignLastUsedCompanyForDeletedCompany(companyId, t);
-      const orphanUserIds: string[] = [];
-      for (const userId of new Set(removed.map((m) => m.userId))) {
-        if (yield* deleteAccountIfOrphaned(userId, t)) orphanUserIds.push(userId);
-      }
+      const orphanUserIds = yield* Effect.filter(
+        [...new Set(removed.map((m) => m.userId))],
+        (userId) => deleteAccountIfOrphaned(userId, t),
+      );
       return { ghostMembershipCount: removed.length, orphanUserIds } satisfies GhostMembershipPurge;
     }),
   );

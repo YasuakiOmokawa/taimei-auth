@@ -15,10 +15,9 @@ export const sweepAbandonedSignups = Effect.fn("account.sweepAbandonedSignups")(
   olderThanMs: number;
   execute: boolean;
 }) {
-  const users = yield* UserRepo;
   const now = yield* Clock.currentTimeMillis;
   const threshold = new Date(now - opts.olderThanMs);
-  const candidates = yield* users.findAbandonedSignupUserIds(threshold);
+  const candidates = yield* UserRepo.use((users) => users.findAbandonedSignupUserIds(threshold));
   if (!opts.execute) {
     return {
       executed: false,
@@ -28,11 +27,9 @@ export const sweepAbandonedSignups = Effect.fn("account.sweepAbandonedSignups")(
   }
 
   const tx = yield* Transaction;
-  const deletedUserIds: string[] = [];
-  for (const userId of candidates) {
-    const deleted = yield* tx.run((t) => deleteAccountIfOrphaned(userId, t));
-    if (deleted) deletedUserIds.push(userId);
-  }
+  const deletedUserIds = yield* Effect.filter(candidates, (userId) =>
+    tx.run((t) => deleteAccountIfOrphaned(userId, t)),
+  );
   return {
     executed: true,
     candidateCount: candidates.length,

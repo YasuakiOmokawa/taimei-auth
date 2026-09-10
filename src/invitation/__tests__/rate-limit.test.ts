@@ -1,11 +1,13 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { expectFailure } from "../../__tests__/live-runner";
 import { failingRedisLayer } from "../../__tests__/test-layers";
 import { recordSentryExceptions } from "../../__tests__/sentry-recorder";
 import { getRedis } from "../../redis";
 import { type Redis, RedisLive } from "../../redis-service";
 import { SentryLive, type SentryService } from "../../sentry";
-import { tryConsumeInvitationQuota } from "../rate-limit";
+import { RateLimited } from "../errors";
+import { consumeInvitationQuota } from "../rate-limit";
 
 // company 単位の invitation 試行枠 (設計 AC-024〜AC-029)。倒し方は fail-open。
 // 上限は env の既定 50 を前提に、env を書き換えず bucket に pre-set して観測する
@@ -25,30 +27,30 @@ const run = <A, E>(
   redis: Layer.Layer<Redis> = RedisLive,
 ) => Effect.runPromise(Effect.provide(p, Layer.mergeAll(redis, SentryLive)));
 
-// AC-029: E channel は never のまま (kernel が RedisError を畳む)。
-tryConsumeInvitationQuota satisfies (
+// AC-029: E channel に RedisError が無い (kernel が畳む)。上限到達だけが RateLimited。
+consumeInvitationQuota satisfies (
   companyId: string,
-) => Effect.Effect<boolean, never, Redis | SentryService>;
+) => Effect.Effect<void, RateLimited, Redis | SentryService>;
 
-describe("tryConsumeInvitationQuota", () => {
+describe("consumeInvitationQuota", () => {
   const captured = recordSentryExceptions();
 
   test("AC-024 / AC-025 計数不能 (RedisError) は通し (fail-open)、Sentry に component 付きで 1 回記録する", async () => {
     const before = captured.length;
-    expect(await run(tryConsumeInvitationQuota(COMPANY), failingRedisLayer)).toBe(true);
+    expect(await run(consumeInvitationQuota(COMPANY), failingRedisLayer)).toBeUndefined();
     expect(captured.length).toBe(before + 1);
     expect(captured.at(-1)?.[1]?.tags?.component).toBe("invitation-rate-limit");
   });
 });
 
-describe("tryConsumeInvitationQuota (live Redis)", () => {
+describe("consumeInvitationQuota (live Redis)", () => {
   beforeEach(clearBucket);
   afterAll(clearBucket);
 
   test("AC-026 / AC-028 49 hit 済みの bucket への 50 hit 目は通し、key は固定 window の書式で 1 つ", async () => {
     const r = await getRedis();
     await r.set(bucketKey(), "49", { EX: 3600 });
-    expect(await run(tryConsumeInvitationQuota(COMPANY))).toBe(true);
+    expect(await run(consumeInvitationQuota(COMPANY))).toBeUndefined();
 
     const keys = await r.keys(`invitation_rate:${COMPANY}:*`);
     expect(keys).toHaveLength(1);
@@ -60,6 +62,7 @@ describe("tryConsumeInvitationQuota (live Redis)", () => {
 
   test("AC-027 50 hit 済みの bucket への 51 hit 目は拒否する", async () => {
     await (await getRedis()).set(bucketKey(), "50", { EX: 3600 });
-    expect(await run(tryConsumeInvitationQuota(COMPANY))).toBe(false);
+    const e = await run(Effect.flip(consumeInvitationQuota(COMPANY)));
+    expectFailure(e, RateLimited, "rate_limited", 429);
   });
 });

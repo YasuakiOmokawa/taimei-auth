@@ -40,12 +40,8 @@ export const completeLoginChallenge = Effect.fn("mfa.completeLoginChallenge")(fu
   const matched = yield* matchOwnedCode(challenge.userId, input).pipe(
     Effect.catchTag("NotEnabled", () => new ChallengeExpired()),
   );
-
-  const { consumed, clearCookie } = yield* consumeLoginChallenge(challenge.challengeId);
-  if (!consumed) return yield* new ChallengeExpired();
-
-  // false = 同一コードの並行消費・リプレイ (チャレンジは消費済み — 稀な交差は再ログインへ倒す)。
-  if (!(yield* consumeMatchedCode(challenge.userId, matched))) return yield* new InvalidCode();
+  const clearCookie = yield* consumeLoginChallenge(challenge.challengeId);
+  yield* consumeMatchedCode(challenge.userId, matched);
 
   // ここが巻き戻し不能点 — issueSession の失敗は AuthApiError のまま伝播する (チャレンジ消費済みで
   // 再ログインへ倒す fail-closed。成功扱いにすると session 無しの成功応答になる)。

@@ -1,5 +1,6 @@
 import { Clock, Effect } from "effect";
 import { spendAttemptBudget } from "../attempt-budget";
+import { RateLimited } from "./errors";
 
 // company 単位の invitation rate limit。Magic Link rate limit と独立した二重防御 (一括入社の burst を見越した既定値)。
 const DEFAULT_HOURLY_LIMIT_PER_COMPANY = 50;
@@ -13,9 +14,8 @@ function hourlyLimit(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_HOURLY_LIMIT_PER_COMPANY;
 }
 
-// 倒し方は fail-open (根拠: CONTEXT.md「fail-closed / fail-open」)。計数は試行枠 kernel に乗せ、数えられなかった
-// verdict (unavailable) も通す。kernel が RedisError を畳むため E は never で、呼び出し側は障害の分岐を持たない。
-export const tryConsumeInvitationQuota = Effect.fn("invitation.tryConsumeQuota")(function* (
+// 倒し方は fail-open (根拠: CONTEXT.md「fail-closed / fail-open」): 数えられなかった verdict (unavailable) も通す。
+export const consumeInvitationQuota = Effect.fn("invitation.consumeQuota")(function* (
   companyId: string,
 ) {
   const nowMillis = yield* Clock.currentTimeMillis;
@@ -25,7 +25,7 @@ export const tryConsumeInvitationQuota = Effect.fn("invitation.tryConsumeQuota")
     maxAttempts: hourlyLimit(),
     component: "invitation-rate-limit",
   });
-  return verdict === "accepted" || verdict === "unavailable";
+  if (verdict === "exhausted") return yield* new RateLimited();
 });
 
 function hourBucket(nowMillis: number): string {
