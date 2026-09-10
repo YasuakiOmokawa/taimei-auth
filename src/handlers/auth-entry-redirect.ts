@@ -4,9 +4,8 @@ import type { Context, Next } from "hono";
 
 import { AuthApi } from "../auth-service";
 import { MembershipRepo } from "../membership/ports";
-import { captureCause, type SentryService } from "../sentry";
+import { captureCause } from "../sentry";
 import { signInParamsSchema } from "../sign-in-params";
-import type { RouteError } from "./wire-error";
 import { runMiddleware } from "./run-route";
 
 // /auth/signup/company は意図的に含めない。含めると membership 0 件 user が同 path へ無限 redirect する。
@@ -23,20 +22,15 @@ export const authEntryRedirect = (c: Context, next: Next) => {
   return runMiddleware(c, next, authEntryRedirectProgram(c));
 };
 
-const passThrough = (failure: {
-  readonly cause: unknown;
-}): Effect.Effect<undefined, never, SentryService> =>
+const passThrough = (failure: { readonly cause: unknown }) =>
   captureCause({ tags: { handler: "authEntryRedirect" } })(failure).pipe(Effect.as(undefined));
 
 // Redis / better-auth / DB の transient 障害は 5xx にせず pass-through (SPA を返す) に倒す。login-shortcut と同じ
 // fail-open 方針で、session-aware redirect は利便で認可ではない。Sentry には warning で残す。
-export const authEntryRedirectProgram = (
-  c: Context,
-): Effect.Effect<Response | undefined, RouteError, AuthApi | MembershipRepo | SentryService> =>
-  Effect.gen(function* () {
+export const authEntryRedirectProgram = Effect.fn("handlers.authEntryRedirect")(
+  function* (c: Context) {
     const headers = c.req.raw.headers;
-    const authApi = yield* AuthApi;
-    const session = yield* authApi.getSession(headers);
+    const session = yield* AuthApi.use((authApi) => authApi.getSession(headers));
     if (!session) return undefined;
 
     const params = signInParamsSchema.safeParse(
@@ -51,8 +45,9 @@ export const authEntryRedirectProgram = (
       return c.redirect(inviteUrl.pathname + inviteUrl.search);
     }
 
-    const membershipRepo = yield* MembershipRepo;
-    const memberships = yield* membershipRepo.findMembershipsByUserId(session.user.id);
+    const memberships = yield* MembershipRepo.use((repo) =>
+      repo.findMembershipsByUserId(session.user.id),
+    );
     const activeMemberships = memberships.filter((m) => m.companyActivationStatus === "ACTIVE");
     if (activeMemberships.length === 0) {
       const companyUrl = new URL("/auth/signup/company", c.req.url);
@@ -62,4 +57,6 @@ export const authEntryRedirectProgram = (
     }
 
     return c.redirect(params.data.redirect_url);
-  }).pipe(Effect.catchTags({ AuthApiError: passThrough, DbError: passThrough }));
+  },
+  Effect.catchTag(["AuthApiError", "DbError"], passThrough),
+);

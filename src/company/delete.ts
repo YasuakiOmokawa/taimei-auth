@@ -64,11 +64,10 @@ export const deleteCompany = Effect.fn("company.deleteCompany")(function* (
       // 削除 company を last_used に握る生存メンバーを残存所属へ付け替えてから orphan を消す。
       yield* users.reassignLastUsedCompanyForDeletedCompany(companyId, t);
 
-      let actorDeleted = false;
-      for (const userId of new Set(removed.map((m) => m.userId))) {
-        const deleted = yield* deleteAccountIfOrphaned(userId, t);
-        if (deleted && userId === actorUserId) actorDeleted = true;
-      }
+      const orphanUserIds = yield* Effect.filter(
+        [...new Set(removed.map((m) => m.userId))],
+        (userId) => deleteAccountIfOrphaned(userId, t),
+      );
 
       yield* companies.softDeleteCompany(companyId, t);
       yield* audit.recordCompanyDeleted(
@@ -76,7 +75,7 @@ export const deleteCompany = Effect.fn("company.deleteCompany")(function* (
         t,
       );
 
-      return { actorDeleted };
+      return { actorDeleted: orphanUserIds.includes(actorUserId) };
     }),
   );
 });

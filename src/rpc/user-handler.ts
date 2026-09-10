@@ -57,23 +57,20 @@ export function registerUserService(router: ConnectRouter) {
           // tx の Transport 所有は ADR-0012 の Scope out のまま。
           const memberships = yield* MembershipRepo;
           const tx = yield* Transaction;
-          const result = yield* tx.run(
+          const row = yield* tx.run(
             Effect.fn("rpc.deleteUser.apply")(function* (t) {
               const blocking = yield* memberships.findCompaniesBlockingUserDeletion(req.userId, t);
-              if (blocking.length > 0) return { blocked: blocking.length };
-              // user 不在でも tx は commit する (旧経路と同じ。判定は tx の外)。
-              const row = yield* deleteAccount(req.userId, t);
-              return { row };
+              if (blocking.length > 0) {
+                return yield* new RpcError({
+                  code: Code.FailedPrecondition,
+                  message: `cannot delete user: sole OWNER of ${blocking.length} active company(ies)`,
+                });
+              }
+              return yield* deleteAccount(req.userId, t);
             }),
           );
-          if ("blocked" in result) {
-            return yield* new RpcError({
-              code: Code.FailedPrecondition,
-              message: `cannot delete user: sole OWNER of ${result.blocked} active company(ies)`,
-            });
-          }
-          if (!result.row)
-            return yield* new RpcError({ code: Code.NotFound, message: "User not found" });
+          // NotFound は tx の外で判定する (tx 内で失敗にすると deleteAccount の audit 行が rollback される)。
+          if (!row) return yield* new RpcError({ code: Code.NotFound, message: "User not found" });
           return { success: true };
         }),
       ),

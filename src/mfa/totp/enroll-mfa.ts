@@ -18,13 +18,12 @@ const replayPendingEnrollment = Effect.fn("mfa.enroll.replay")(function* (
 ) {
   if (row.verifiedAt !== null) return yield* new AlreadyEnabled();
 
-  const mfa = yield* MfaTotpRepo;
-  const ring = yield* (yield* MfaKeyring).ring;
-  const issuer = yield* (yield* MfaIssuer).appName;
+  const ring = yield* MfaKeyring.use((k) => k.ring);
+  const issuer = yield* MfaIssuer.use((i) => i.appName);
 
   const secret = yield* Effect.promise(() => decryptValue(ring, secretCipher(row), actor.id));
   // 未有効の間は消費経路が無いため全件が未使用のまま残っている (id 昇順 = 発行順)。
-  const stored = yield* mfa.listUnusedRecoveryCodes(actor.id);
+  const stored = yield* MfaTotpRepo.use((mfa) => mfa.listUnusedRecoveryCodes(actor.id));
   const recoveryCodes = yield* Effect.all(
     stored.map((code) => Effect.promise(() => decryptText(ring, codeCipher(code), actor.id))),
     { concurrency: "unbounded" },
@@ -42,8 +41,8 @@ export const enroll = Effect.fn("mfa.enroll")(function* (input: { actor: MfaTotp
   const existing = yield* mfa.findMfaTotp(input.actor.id);
   if (existing) return yield* replayPendingEnrollment(input.actor, existing);
 
-  const ring = yield* (yield* MfaKeyring).ring;
-  const issuer = yield* (yield* MfaIssuer).appName;
+  const ring = yield* MfaKeyring.use((k) => k.ring);
+  const issuer = yield* MfaIssuer.use((i) => i.appName);
   const ids = yield* IdGenerator;
   const tx = yield* Transaction;
 
@@ -59,8 +58,8 @@ export const enroll = Effect.fn("mfa.enroll")(function* (input: { actor: MfaTotp
     { concurrency: "unbounded" },
   );
 
-  const won = yield* tx.run((t) =>
-    Effect.gen(function* () {
+  const won = yield* tx.run(
+    Effect.fn("mfa.enroll.apply")(function* (t) {
       const inserted = yield* mfa.insertMfaTotpEnrollment(
         {
           userId: input.actor.id,

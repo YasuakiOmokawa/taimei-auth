@@ -45,6 +45,7 @@ describe("UserService/DeleteUser via handleRpc", () => {
           },
         });
         expect(yield* db.readUser(owner.id)).toBeDefined();
+        expect((yield* auditRowsFor(owner.id, "account_delete")).length).toBe(0);
       }),
     ));
 

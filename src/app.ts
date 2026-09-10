@@ -1,12 +1,11 @@
 import { Effect } from "effect";
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
-import { getSessionCookie } from "better-auth/cookies";
 import { auth } from "./auth";
 import { HealthRepo } from "./health/ports";
 import { Redis } from "./redis-service";
 import { handleRpc } from "./rpc/fetch-handler";
-import { buildLoginShortcut } from "./handlers/login-shortcut";
+import { loginShortcut } from "./handlers/login-shortcut";
 import { accountAvatar } from "./handlers/avatar-upload";
 import { accountCompany } from "./handlers/account-company";
 import { accountInvitation } from "./handlers/account-invitation";
@@ -88,12 +87,6 @@ export function buildApp(options: AppOptions): Hono {
     async (c) => (await handleRpc(c.req.raw)) ?? c.json({ error: "Not Found" }, 404),
   );
 
-  const loginShortcut = buildLoginShortcut(async (headers) => {
-    // `/` は最も hot な entry。Cookie 不在なら Redis/DB を叩かず未認証確定で latency を削る。
-    if (!getSessionCookie(headers)) return false;
-    const result = await auth.api.getSession({ headers });
-    return result !== null;
-  });
   app.route("/", loginShortcut);
 
   const isLocal = isLocalEnvironment();

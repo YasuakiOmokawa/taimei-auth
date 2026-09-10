@@ -27,8 +27,8 @@ export const forceDisableMfa = Effect.fn("management.forceDisableMfa")(function*
   if (!user) return { ok: false, error: "not_found" } satisfies ForceDisableResult;
   const wasEnabled = (yield* mfa.readMfaVerification(userId))?.verifiedAt != null;
 
-  const deleted = yield* tx.run((t) =>
-    Effect.gen(function* () {
+  const deleted = yield* tx.run(
+    Effect.fn("management.forceDisableMfa.apply")(function* (t) {
       const rows = yield* mfa.deleteMfaTotp(userId, t);
       yield* mfa.deleteRecoveryCodesByUserId(userId, t);
       return rows;

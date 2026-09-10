@@ -4,9 +4,8 @@ import type { DbTx } from "@/db/transaction";
 import { AuditLog } from "../audit/ports";
 import { IdGenerator } from "../id-generator";
 import { Transaction } from "../transaction";
-import { RateLimited } from "./errors";
 import { InvitationRepo } from "./ports";
-import { tryConsumeInvitationQuota } from "./rate-limit";
+import { consumeInvitationQuota } from "./rate-limit";
 
 // ADR-0012 (Use-case 層): 招待作成手続 (idempotency + rate-limit + INSERT + audit)。rate-limit を tx 内へ
 // 統合しないのは、並行重複招待時の Redis カウンタ消費パターンが変わり監視系が silent に drift するため。
@@ -29,8 +28,7 @@ export const createInvitation = Effect.fn("invitation.create")(function* (params
   const existing = yield* invitations.findActivePendingInvitation(companyId, email);
   if (existing) return { invitation: existing, reused: true };
 
-  const withinLimit = yield* tryConsumeInvitationQuota(companyId);
-  if (!withinLimit) return yield* new RateLimited();
+  yield* consumeInvitationQuota(companyId);
 
   const nowMillis = yield* Clock.currentTimeMillis;
   const inserted = yield* tx.run(

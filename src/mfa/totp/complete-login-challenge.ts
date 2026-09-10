@@ -38,18 +38,14 @@ export const completeLoginChallenge = Effect.fn("mfa.completeLoginChallenge")(fu
   // 再生成不能なリカバリーコードを焼かないため (焼失側は再発行自由なチャレンジ)。
   // not_enabled はチャレンジ発行後に無効化が完了した交差。登録状態を未認証応答へ漏らさない。
   const matched = yield* matchOwnedCode(challenge.userId, input).pipe(
-    Effect.catchTag("NotEnabled", () => Effect.fail(new ChallengeExpired())),
+    Effect.catchTag("NotEnabled", () => new ChallengeExpired()),
   );
-
-  const { consumed, clearCookie } = yield* consumeLoginChallenge(challenge.challengeId);
-  if (!consumed) return yield* new ChallengeExpired();
-
-  // false = 同一コードの並行消費・リプレイ (チャレンジは消費済み — 稀な交差は再ログインへ倒す)。
-  if (!(yield* consumeMatchedCode(challenge.userId, matched))) return yield* new InvalidCode();
+  const clearCookie = yield* consumeLoginChallenge(challenge.challengeId);
+  yield* consumeMatchedCode(challenge.userId, matched);
 
   // ここが巻き戻し不能点 — issueSession の失敗は AuthApiError のまま伝播する (チャレンジ消費済みで
   // 再ログインへ倒す fail-closed。成功扱いにすると session 無しの成功応答になる)。
-  const sessionHeaders = yield* (yield* MfaSessions).issueSession(challenge.userId);
+  const sessionHeaders = yield* MfaSessions.use((s) => s.issueSession(challenge.userId));
 
   const { ip, userAgent } = getClientContext(headers);
   yield* appendAuditLogBestEffort({

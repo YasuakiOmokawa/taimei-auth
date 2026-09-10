@@ -21,7 +21,7 @@ export const matchOwnedCode = Effect.fn("mfa.matchOwnedCode")(function* (
   input: { code: string; kind: MfaCodeKind },
 ) {
   const mfa = yield* MfaTotpRepo;
-  const ring = yield* (yield* MfaKeyring).ring;
+  const ring = yield* MfaKeyring.use((k) => k.ring);
 
   const row = yield* mfa.findMfaTotp(userId);
   if (!row || row.verifiedAt === null) return yield* new NotEnabled();
@@ -41,15 +41,17 @@ export const matchOwnedCode = Effect.fn("mfa.matchOwnedCode")(function* (
   return yield* new InvalidCode();
 });
 
-// 消費の決着点。false = リプレイ・過去 timestep・並行敗者 (条件付き単文の WHERE が判定する)。
+// 消費の決着点。リプレイ・過去 timestep・並行敗者は条件付き単文の WHERE が弾き InvalidCode になる。
 export const consumeMatchedCode = Effect.fn("mfa.consumeMatchedCode")(function* (
   userId: string,
   matched: MatchedOwnedCode,
 ) {
-  const mfa = yield* MfaTotpRepo;
-  return matched.kind === "totp"
-    ? yield* mfa.consumeTotpTimestep(userId, matched.timestep)
-    : yield* mfa.consumeRecoveryCode(userId, matched.id);
+  const consumed = yield* MfaTotpRepo.use((mfa) =>
+    matched.kind === "totp"
+      ? mfa.consumeTotpTimestep(userId, matched.timestep)
+      : mfa.consumeRecoveryCode(userId, matched.id),
+  );
+  if (!consumed) return yield* new InvalidCode();
 });
 
 // 照合 + 消費の合成 (disable 経路用)。成功 = 本人確認が確定した状態。
@@ -57,6 +59,5 @@ export const verifyAndConsumeOwnedCode = Effect.fn("mfa.verifyAndConsumeOwnedCod
   userId: string,
   input: { code: string; kind: MfaCodeKind },
 ) {
-  const matched = yield* matchOwnedCode(userId, input);
-  if (!(yield* consumeMatchedCode(userId, matched))) return yield* new InvalidCode();
+  yield* consumeMatchedCode(userId, yield* matchOwnedCode(userId, input));
 });

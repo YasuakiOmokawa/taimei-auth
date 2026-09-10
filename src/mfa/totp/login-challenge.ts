@@ -8,6 +8,7 @@ import { tryAuthApi } from "../../errors";
 import { Redis } from "../../redis-service";
 import { SentryService } from "../../sentry";
 import { spendAttemptBudget } from "../../attempt-budget";
+import { ChallengeExpired } from "../error-mapping";
 
 // ログインチャレンジの store (Redis 1 key) + 試行枠 + 自前署名 cookie (A-9)。
 // 旧 challenge-store の 3 write 順序・better-call 署名 scheme のハードコピー・完了マーカー形式は
@@ -62,8 +63,9 @@ export const openLoginChallenge = Effect.fn("mfa.openLoginChallenge")(function* 
   challenge: LoginChallenge,
 ) {
   const challengeId = `mfa-lc-${crypto.randomUUID()}`;
-  const redis = yield* Redis;
-  yield* redis.set(challengeKey(challengeId), JSON.stringify(challenge), CHALLENGE_TTL_SECONDS);
+  yield* Redis.use((r) =>
+    r.set(challengeKey(challengeId), JSON.stringify(challenge), CHALLENGE_TTL_SECONDS),
+  );
   const signature = yield* signChallengeId(challengeId);
   return {
     name: LOGIN_CHALLENGE_COOKIE,
@@ -83,25 +85,26 @@ export const readLoginChallengeState = Effect.fn("mfa.readLoginChallengeState")(
 export const peekLoginChallenge = Effect.fn("mfa.peekLoginChallenge")(function* (headers: Headers) {
   const challengeId = yield* resolveChallengeId(headers);
   if (!challengeId) return null;
-  const raw = yield* (yield* Redis).get(challengeKey(challengeId));
+  const raw = yield* Redis.use((r) => r.get(challengeKey(challengeId)));
   const challenge = parseChallenge(raw);
   return challenge ? ({ ...challenge, challengeId } satisfies OpenedLoginChallenge) : null;
 });
 
-// getAndDelete が単回消費を atomic に確定する。false = 並行敗者 or 期限切れ。
+// getAndDelete が単回消費を atomic に確定する (並行敗者と期限切れは ChallengeExpired)。
 // 値の形は発行側しか書かないため存在チェックで足りる (形の検証は peek の担当)。
 export const consumeLoginChallenge = Effect.fn("mfa.consumeLoginChallenge")(function* (
   challengeId: string,
 ) {
-  const raw = yield* (yield* Redis).getAndDelete(challengeKey(challengeId));
-  return { consumed: raw !== null, clearCookie: clearCookieHeaders() };
+  const raw = yield* Redis.use((r) => r.getAndDelete(challengeKey(challengeId)));
+  if (raw === null) return yield* new ChallengeExpired();
+  return clearCookieHeaders();
 });
 
 // 失効指示 cookie は返さない — 呼び出し側は応答を invalid_code のままにする契約 (§9)。
 export const destroyLoginChallenge = Effect.fn("mfa.destroyLoginChallenge")(function* (
   challengeId: string,
 ) {
-  yield* (yield* Redis).delete(challengeKey(challengeId));
+  yield* Redis.use((r) => r.delete(challengeKey(challengeId)));
 });
 
 // 計数 kernel は attempt-budget.ts と共有。kernel は倒し方を持たないので、fail-closed (unavailable → Locked)
@@ -117,10 +120,12 @@ export const spendLoginChallengeAttempt = Effect.fn("mfa.spendLoginChallengeAtte
     component: "mfa-login-challenge",
   });
   if (verdict === "exhausted") {
-    yield* (yield* SentryService).captureMessage("mfa: login challenge attempt budget exhausted", {
-      level: "warning",
-      tags: { component: "mfa-login-challenge" },
-    });
+    yield* SentryService.use((sentry) =>
+      sentry.captureMessage("mfa: login challenge attempt budget exhausted", {
+        level: "warning",
+        tags: { component: "mfa-login-challenge" },
+      }),
+    );
   }
   return verdict;
 });

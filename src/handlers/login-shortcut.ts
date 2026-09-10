@@ -1,8 +1,10 @@
 import { buildAuthLoginUrl } from "@taimei-code/auth-client";
+import { getSessionCookie } from "better-auth/cookies";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import type { Context } from "hono";
 
+import { AuthApi } from "../auth-service";
 import { captureCause } from "../sentry";
 import { runRoute } from "./run-route";
 
@@ -29,42 +31,31 @@ const buildLoginRedirect = (url: URL): URL => {
   return target;
 };
 
-export type IsAuthenticated = (headers: Headers) => Promise<boolean>;
+// Redis transient 失敗は 5xx にせず未認証扱いで共通ログイン画面に流す (fail-open)。Sentry warning で観測のみ。
+const failOpenAsSignedOut = (failure: { readonly cause: unknown }) =>
+  captureCause({ tags: { handler: "loginShortcut" } })(failure).pipe(Effect.as(false));
 
-export const buildLoginShortcut = (isAuthenticated: IsAuthenticated) => {
-  const app = new Hono();
+export const loginShortcutProgram = Effect.fn("handlers.loginShortcut")(function* (c: Context) {
+  const headers = c.req.raw.headers;
+  // `/` は最も hot な entry。Cookie 不在なら Redis/DB を叩かず未認証確定で latency を削る。
+  const authenticated = getSessionCookie(headers)
+    ? yield* AuthApi.use((authApi) => authApi.getSession(headers)).pipe(
+        Effect.map((session) => session !== null),
+        Effect.catchTag("AuthApiError", failOpenAsSignedOut),
+      )
+    : false;
 
-  const handler = (c: Context) =>
-    runRoute(
-      c,
-      Effect.gen(function* () {
-        const url = new URL(c.req.url);
+  // 302 Location が Cookie で分岐するため CDN/proxy の共有 cache を禁止 (session-leak 防止)
+  c.header("Cache-Control", "private, no-store");
+  c.header("Vary", "Cookie");
 
-        // Redis transient 失敗は 5xx にせず未認証扱いで共通ログイン画面に流す (fail-open)。Sentry warning で観測のみ
-        const authenticated = yield* Effect.tryPromise({
-          try: () => isAuthenticated(c.req.raw.headers),
-          catch: (err) => err,
-        }).pipe(
-          Effect.catch((err) =>
-            captureCause({ tags: { handler: "loginShortcut" } })({
-              cause: err,
-            }).pipe(Effect.as(false)),
-          ),
-        );
+  const url = new URL(c.req.url);
+  return c.redirect(
+    authenticated ? `${url.origin}/account` : buildLoginRedirect(url).toString(),
+    302,
+  );
+});
 
-        // 302 Location が Cookie で分岐するため CDN/proxy の共有 cache を禁止 (session-leak 防止)
-        c.header("Cache-Control", "private, no-store");
-        c.header("Vary", "Cookie");
+const handler = (c: Context) => runRoute(c, loginShortcutProgram(c));
 
-        if (authenticated) {
-          return c.redirect(`${url.origin}/account`, 302);
-        }
-        return c.redirect(buildLoginRedirect(url).toString(), 302);
-      }),
-    );
-
-  app.get("/", handler);
-  app.get("/login", handler);
-
-  return app;
-};
+export const loginShortcut = new Hono().get("/", handler).get("/login", handler);

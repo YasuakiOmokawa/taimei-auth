@@ -15,7 +15,7 @@
 ## 層の責務
 
 - **Transport**：`handlers/` と `rpc/` に置き、parameter parse、認証、Guard呼出し、Use-case呼出し、response変換を所有する。Effect programを `runRoute`、`runMiddleware`、`runRpc` のadapterで走らせ、failureとdefectのwire写像はadapterだけが行う。
-- **Guard**：`membership/guard/` と `membership/policy.ts` に置き、Hono非依存の操作単位認可を所有する。公開APIは `Effect<A, GuardError, R>` で、依存はportsのserviceを `yield*` して取る。
+- **Guard**：`membership/guard/` と `membership/policy.ts` に置き、Hono非依存の操作単位認可を所有する。公開APIは `Effect<A, GuardError, R>` で、`Effect.fn` で書き、依存はportsのserviceを `yield*` して取る。
 - **Use-case**：`account/`、`company/`、`invitation/`、`membership/`、`mfa/` に置き、業務手続、transaction、audit、不変条件、TOCTOU再検証を所有する。`Effect.fn` で書き、失敗は各domainの `errors.ts` のfailure classを `yield*` で返す。
 - **Repository**：`db/repositories/` に置き、queryを提供するが業務判断を持たない。
 
@@ -34,6 +34,7 @@ ADR-0012のScope outに記録された既存経路は、独立した抽出作業
 - 各domainは `ports.ts` にRepositoryのEffect面 (`Context.Service`、型は `LiftedModule<typeof repo>`) を、`wiring.ts` にproduction結線 (`liftAll(repo)`) を置く。portのmethod名はrepositoryの関数名と同一にし、port側で名前を付け替えない。同期helper (`generate*`、`isAcceptable`) は `liftAll` の対象外なので、必要な側 (`id-generator.ts`、`db/testing/*`) が直接importする。`db/repositories/*` と `db/transaction` のruntime importは `*/wiring.ts`、`id-generator.ts`、`transaction.ts`、`auth.ts` に限り、他は `import type` だけを使う。
 - transactionは `Transaction.run` で取り、`runInTransaction` を直接呼ばない。tx内のfailureとdefectは常にrollbackされ、tx後の副作用は `tapError` や `catchTag` でtxの外に置く。
 - 時刻は `Clock.currentTimeMillis`、IDは `IdGenerator`、better-auth APIは `AuthApi`、Redisは `Redis`、Sentryは `SentryService`、メールは `EmailSender`、fire-and-forgetは `Background.run` のserviceを通す。`Date.now()`、`Sentry.capture*`、`handlers/wire-error.ts` の `captureThrown` / `settleCause`、`runBackground`、`Promise.all` をuse-caseやhandlerに直接書かない。
+- combinatorは `Effect.fn` の第2引数以降に渡し、戻り値に `.pipe` を付けない。serviceのmethodを1つだけ呼ぶ時は `Service.use((s) => s.method())` で取る。failure classのinstanceはそのままEffectなので `Effect.fail(new X())` と書かない。
 - サードパーティ境界の失敗は `errors.ts` の `DbError`、`AuthApiError`、`RedisError`、`EmailError` (`cause: unknown`) で運び、producerは `tryDb`、`tryAuthApi`、`tryRedis`、`tryEmail` だけを使う。
 - `auth.ts` から静的に辿れるmodule (集合と理由は [`ADR-0017`](../docs/adr/0017-effect-v4-full-adoption.md) のDid not adoptにあるTDZ項) で `getRuntime` が必要な場合は関数内で `await import("./runtime")` する。`runtime.ts` を直接静的importするfileの集合は `src/__tests__/effect-boundary.test.ts` が固定する。
 - 全ゲートは `src/__tests__/effect-boundary.test.ts` と `src/handlers/__tests__/no-transport-tx.test.ts` が固定する。
