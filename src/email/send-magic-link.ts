@@ -3,7 +3,7 @@ import { isLocalEnvironment } from "../env";
 import { getAppName, getMagicLinkFromEmail, renderAndSendEmail } from "./client";
 import MagicLinkEmail from "./magic-link";
 
-// ログインリンクメール送信。local は console.log fallback (e2e がログからリンクを拾うため文言を変えない)。
+// local の console.log fallback は e2e がログからリンクを拾うため文言を変えない。
 export const sendMagicLinkEmail = Effect.fn("email.sendMagicLink")(function* (
   email: string,
   url: string,

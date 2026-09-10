@@ -5,8 +5,6 @@ import { EmailError, tryEmail } from "../errors";
 
 let resendInstance: Resend | null = null;
 
-// 全メールが同じ render → send → error 変換を辿るためここに閉じ、送信基盤の差し替え点を 1 箇所にする。
-// provider (Resend) と render は境界: 失敗は EmailError (cause: unknown) で E channel に載せる (ADR-0017)。
 export const renderAndSendEmail = Effect.fn("email.renderAndSend")(function* (params: {
   from: string;
   to: string;
@@ -14,8 +12,7 @@ export const renderAndSendEmail = Effect.fn("email.renderAndSend")(function* (pa
   component: ReactElement;
   kind: "magic link" | "welcome" | "invitation" | "mfa enabled" | "mfa disabled";
 }) {
-  // render は workerd バンドルで esbuild の lazy CJS init が走らず undefined になるため、dynamic import で
-  // module init を強制する (ADR-0011)。実行時に react を引くので react / react-dom は devDependencies へ移さない。
+  // workerd bundle では render の lazy CJS init が走らず undefined になるため dynamic import で module init を強制する。
   const { render } = yield* tryEmail(() => import("@react-email/components"));
   const [html, text] = yield* Effect.all(
     [

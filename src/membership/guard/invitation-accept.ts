@@ -6,9 +6,6 @@ import { MembershipRepo } from "../ports";
 import { type Actor, type ParseBody, requireActor } from "./core";
 import { EmailMismatch, ExpiredOrUsed, NotFound } from "./errors";
 
-// 判定順: 401 → 400 → 404 (token) → 403 (email_mismatch) → 既所属短絡 (reused) → 410 (isAcceptable)。
-// OWNER 招待の招待者再検証は降格 UPDATE との TOCTOU を避けるため entry でなく accept use-case の tx 内。
-
 export type InvitationAcceptGrant =
   | { mode: "proceed"; actor: Actor; invitation: InvitationRow }
   // reused branch は handler が company_id しか使わないため companyId だけ narrow する (PR #107 規律)。

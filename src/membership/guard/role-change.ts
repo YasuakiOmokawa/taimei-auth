@@ -4,8 +4,6 @@ import { canChangeRole } from "../policy";
 import { type ParseBody, requireActor, requireMembershipOf, requireTargetMembership } from "./core";
 import { Forbidden } from "./errors";
 
-// 判定順: 401 → 400 (parseBody) → 403 (ADMIN 以上) → 404 (target membership) → 403 (canChangeRole)。
-
 export const requireRoleChange = Effect.fn("membership.requireRoleChange")(function* (opts: {
   headers: Headers;
   companyId: string;

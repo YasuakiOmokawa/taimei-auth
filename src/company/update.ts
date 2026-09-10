@@ -6,9 +6,7 @@ import { NotFound } from "../membership/guard/errors";
 import { Transaction } from "../transaction";
 import { CompanyRepo } from "./ports";
 
-// ADR-0012 (Use-case 層): 事業所編集手続。before/after diff を tx 内で集めるのは、tx 外だと別 tx の update と
-// 混線して audit の before が現行値とずれる silent drift が起きるため。inactive company は NotFound を E に載せる
-// (failure は tx ごと rollback されるので audit は残らない)。
+// before/after diff を tx 内で集めるのは、tx 外だと別 tx の update と混線し audit の before がずれるため。
 
 export type UpdateCompanyInput = { name: string; orgCode: OrgCode };
 

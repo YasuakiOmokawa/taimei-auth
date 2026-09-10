@@ -15,7 +15,6 @@ export const changeRole = Effect.fn("membership.changeRole")(function* (params: 
 }) {
   const { actorUserId, targetUserId, companyId, beforeRole, nextRole } = params;
 
-  // no-op 短絡: tx open / audit を発火しない (tx 数 metric の silent 増を防ぐ)。
   if (beforeRole === nextRole) return;
 
   const audit = yield* AuditLog;

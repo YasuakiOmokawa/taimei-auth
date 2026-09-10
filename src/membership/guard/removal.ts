@@ -3,8 +3,6 @@ import { canAttemptRemoval, canRemoveTarget } from "../policy";
 import { requireMembership, requireTargetMembership } from "./core";
 import { Forbidden } from "./errors";
 
-// 判定順: 401 → 403 (非所属) → 403 (canAttemptRemoval) → 404 (target) → 403 (canRemoveTarget)。body なし。
-
 export const requireRemoval = Effect.fn("membership.requireRemoval")(function* (opts: {
   headers: Headers;
   companyId: string;

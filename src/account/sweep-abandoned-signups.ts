@@ -9,8 +9,7 @@ type SweepReport = {
   deletedUserIds: string[];
 };
 
-// ADR-0010 D5: 登録途中放棄アカウントの TTL sweep。候補抽出と削除の間に user が事業所を作る race は、
-// 削除を tx 内 deleteAccountIfOrphaned に通して「ACTIVE 所属 0 件」を再判定することで防ぐ。
+// 候補抽出と削除の間の事業所作成 race は tx 内 deleteAccountIfOrphaned の再判定で防ぐ。
 export const sweepAbandonedSignups = Effect.fn("account.sweepAbandonedSignups")(function* (opts: {
   olderThanMs: number;
   execute: boolean;

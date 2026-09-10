@@ -1,5 +1,4 @@
 // 不可視 unicode / 方向制御文字を除去し、表示名偽装の phishing と SMTP ヘッダインジェクションを防ぐ。
-// regex の制御文字リテラルは lint で弾かれるため codepoint 判定で実装する。
 const isInvisibleOrDirectional = (cp: number): boolean =>
   cp <= 0x1f || // C0 制御文字 (CR=0x0d / LF=0x0a を含む)
   (cp >= 0x7f && cp <= 0x9f) || // DEL + C1 制御文字
